@@ -1,3 +1,4 @@
+from typing import List
 from dataclasses import dataclass
 
 import torch
@@ -46,6 +47,8 @@ class GPTConfig:
     dtype = torch.bfloat16
     cache: bool = True
     max_bsz: int = 16
+    head_sizes: List[int] = [1]
+    head_weights: List[float] = [1.]
 
 
 @dataclass
