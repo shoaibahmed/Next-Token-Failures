@@ -84,6 +84,12 @@ parser.add_argument(
 parser.add_argument(
         "--wandb_entity", type=str, default=None, help="Wandb username",
     )
+parser.add_argument(
+    "--prediction_head_sizes", type=str, default='1', help='Prediction heads to be used for model training'
+    )
+parser.add_argument(
+    "--prediction_head_weights", type=str, default='1', help='Weights to be assigned to the different predictions heads for model training'
+    )
 
 args = parser.parse_args()
 # System stuff
@@ -102,6 +108,11 @@ top_k = 1
 eval_iters = 1000
 eval_interval = 5
 log_interval = 10
+
+# Multi-head config
+assert len(args.prediction_head_sizes.split(",")) == len(args.prediction_head_weights.split(",")), \
+        f"list length mismatch: {args.prediction_head_sizes.split(',')} != {args.prediction_head_weights.split(',')}"
+# TODO: use the prediction heads in the config name when using multihead_gpt model
 
 # Optimiser
 dtype = 'float16'
