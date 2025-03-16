@@ -112,11 +112,6 @@ log_interval = 10
 # Multi-head config
 assert len(args.prediction_head_sizes.split(",")) == len(args.prediction_head_weights.split(",")), \
         f"list length mismatch: {args.prediction_head_sizes.split(',')} != {args.prediction_head_weights.split(',')}"
-if args.model == 'multihead_gpt':
-    # TODO: use the prediction heads in the config name when using multihead_gpt model
-    # TODO: fix the train function when using multihead_gpt
-    # TODO: construct the multihead targets appropriately -- similar to using a compute loss function
-    raise NotImplementedError
 
 # Optimiser
 dtype = 'float16'
