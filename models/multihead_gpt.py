@@ -25,6 +25,11 @@ class CrossEntropyLoss(torch.nn.Module):
         return loss
 
 
+def compute_targets(targets: torch.Tensor, head_size: int) -> torch.Tensor:
+    assert len(targets.shape) == 2, targets.shape  # B x L
+    raise NotImplementedError
+
+
 class MultiheadGPT(Transformer):
     def __init__(self, config):
         super().__init__(config, block=Block)
@@ -46,7 +51,7 @@ class MultiheadGPT(Transformer):
         # Define the loss function
         self.loss_fn = CrossEntropyLoss(ignore_idx=-1)
 
-    def forward(self, idx, targets: Dict[int, torch.Tensor] = None):
+    def forward(self, idx, targets=None):
         device = idx.device
         bsz, seq_len = idx.size()
         assert seq_len <= self.config.block_size, f"Cannot forward sequence of length {seq_len}, block size is only " \
@@ -61,31 +66,26 @@ class MultiheadGPT(Transformer):
         for block in self.layers:
             x = block(x, self.cache)
 
-        logits_list = []
-        loss_list = []
-        accs_list = []
+        logits, accs = None, None
         total_loss = 0.
         for head_idx, head_size in enumerate(self.head_sizes):
             head_output = self.prediction_heads[head_idx](x, self.cache)
             head_output = self.final_layernorm(head_output)
 
             if targets is not None:
-                assert head_size in targets, f"{head_size} not in target keys {targets.keys()}"
-                logits = self.lm_head(head_output)
-                # Calculate loss with ignore_index=-1, meaning we skip the gradient contributions from those tokens
-                # which is basically the prefix tokens
-                loss = self.loss_fn(logits, targets[head_size])
-                acc, token_acc = accuracy(logits, targets)
-                accs = {"acc": acc, "token_acc": token_acc}
+                head_logits = self.lm_head(head_output)
+                # Calculate loss with ignore_index=-1, meaning we skip the gradient contributions from those tokens which is basically the prefix tokens
+                head_targets = compute_targets(targets, head_size)
+                head_loss = self.loss_fn(head_logits, head_targets)
+                total_loss += head_loss * self.head_weights[head_idx]
+                if head_idx == 0:
+                    assert head_size == 1, f"head size should be 1. found: {head_size}"
+                    acc, token_acc = accuracy(head_logits, targets)
+                    accs = {"acc": acc, "token_acc": token_acc}
+                    logits = head_logits
             else:
                 # inference-time mini-optimization: only forward the lm_head on the very last position
                 logits = self.lm_head(head_output[:, [-1], :])  # note: using list [-1] to preserve the time dim
-                return logits, None, None  # no need to return a list -- makes it compatible with existing generate function
+                break
 
-            logits_list.append(logits)
-            loss_list.append(loss)
-            accs_list.append(accs)
-
-            total_loss += loss * self.head_weights[head_idx]
-
-        return logits_list, total_loss, accs_list  # returns total loss instead of loss list
+        return logits, total_loss, accs
