@@ -40,7 +40,7 @@ class MultiheadGPT(Transformer):
         assert self.head_sizes[0] == 1, "First head should have a size of 1"
 
         # Setup the prediction heads
-        self.prediction_heads = [copy.deepcopy(self.layers[-1]) for _ in range(len(self.head_horizon))]
+        self.prediction_heads = [copy.deepcopy(self.layers[-1]) for _ in range(len(self.head_sizes))]
         del self.layers[-1]  # remove the final layer itself
 
         # Define the loss function
