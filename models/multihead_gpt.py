@@ -78,12 +78,16 @@ def compute_targets_optimized(input_ids: torch.Tensor, vocab_size: int, head_siz
     ignore_mask = (tokens != ignore_idx)
     combined_mask = valid_indices_mask.unsqueeze(0) & ignore_mask  # (B, L-1, head_size)
 
+    # Replace ignored tokens with 0 to avoid out-of-bounds
+    tokens_filtered = tokens.clone()
+    tokens_filtered[~combined_mask] = 0
+
     # Compute relative frequencies using scatter_add
     relative_freq = torch.zeros(B, L - 1, vocab_size, device=device)
     relative_freq.scatter_add_(
         dim=2,
-        index=tokens.long(),  # (B, L-1, head_size)
-        src=combined_mask.float()  # (B, L-1, head_size)
+        index=tokens_filtered,          # no negative indices now!
+        src=combined_mask.float()
     )
 
     # Normalize if required
@@ -162,41 +166,50 @@ class MultiheadGPT(Transformer):
 
 
 if __name__ == "__main__":
+    # Execution: python -m models.multihead_gpt
+
     import time
     from tqdm import tqdm
 
     vocab_size: int = 10
     seq_len = 100
+    ignore_idx = -1
+    prefix_len = int(0.1 * seq_len)
 
-    input_ids = torch.randint(0, vocab_size, size=(1, seq_len,))
+    def get_input():
+        input_ids = torch.randint(0, vocab_size, size=(1, seq_len,))
+        input_ids[:, :prefix_len] = ignore_idx  # mask the prefix
+        return input_ids
+
+    input_ids = get_input()
     print(input_ids.shape)
     print(input_ids)
-    targets = compute_targets(input_ids, vocab_size, head_size=10)
+    targets = compute_targets(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
     print(targets.shape)
     print(targets)
 
-    targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10)
+    targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
     print(targets_optim.shape)
     print(targets_optim)
     assert (targets == targets_optim).all()
 
     n_samples = 100
     for _ in tqdm(range(n_samples)):
-        input_ids = torch.randint(0, vocab_size, size=(1, seq_len,))
-        targets = compute_targets(input_ids, vocab_size, head_size=10)
-        targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10)
+        input_ids = get_input()
+        targets = compute_targets(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
+        targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
         assert (targets == targets_optim).all()
 
     start_time = time.time()
     for _ in tqdm(range(n_samples)):
-        input_ids = torch.randint(0, vocab_size, size=(1, seq_len,))
-        targets = compute_targets(input_ids, vocab_size, head_size=10)
+        input_ids = get_input()
+        targets = compute_targets(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
     elapsed = time.time() - start_time
     print(f"Base implementation elapsed time: {elapsed:.2f} secs")
 
     start_time = time.time()
     for _ in tqdm(range(n_samples)):
-        input_ids = torch.randint(0, vocab_size, size=(1, seq_len,))
-        targets = compute_targets_optimized(input_ids, vocab_size, head_size=10)
+        input_ids = get_input()
+        targets = compute_targets_optimized(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
     elapsed = time.time() - start_time
     print(f"Optimized implementation elapsed time: {elapsed:.2f} secs")
