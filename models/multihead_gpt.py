@@ -36,15 +36,15 @@ def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, ig
     assert len(input_ids.shape) == 2, input_ids.shape  # B x L
     B, L = input_ids.shape
 
-    relative_freq = torch.zeros(B, L-1, vocab_size).to(input_ids.device)  # B x (L-1) x V
-    for start_idx in range(1, L):  # targets are one token less than the sequence
+    relative_freq = torch.zeros(B, L, vocab_size).to(input_ids.device)  # B x L x V
+    for start_idx in range(L):  # targets are one token less than the sequence
         last_idx = min(start_idx + head_size, L)
         for b in range(B):
             current_input_chunk = input_ids[b, start_idx:last_idx]
             keep_mask = current_input_chunk != ignore_idx
             valid_indices = current_input_chunk[keep_mask]  # shape [num_valid]
-            relative_freq[b, start_idx-1, :] = torch.scatter_add(relative_freq[b, start_idx-1, :], dim=0, index=valid_indices,
-                                                                 src=torch.ones(valid_indices.shape, device=relative_freq.device))
+            relative_freq[b, start_idx, :] = torch.scatter_add(relative_freq[b, start_idx, :], dim=0, index=valid_indices,
+                                                               src=torch.ones(valid_indices.shape, device=relative_freq.device))
 
     if boundary_condition == "normalize":
         row_sum = relative_freq.sum(dim=-1, keepdim=True).clamp_min(1e-9)
@@ -63,26 +63,26 @@ def compute_targets_optimized(input_ids: torch.Tensor, vocab_size: int, head_siz
 
     device = input_ids.device
     # Generate window indices and masks
-    t_indices = torch.arange(L - 1, device=device)  # (L-1,)
-    window_indices = t_indices.view(-1, 1) + 1 + torch.arange(head_size, device=device).view(1, -1)  # (L-1, head_size)
-    valid_indices_mask = window_indices < L  # (L-1, head_size)
+    t_indices = torch.arange(L, device=device)  # L
+    window_indices = t_indices.view(-1, 1) + torch.arange(head_size, device=device).view(1, -1)  # (L, head_size)
+    valid_indices_mask = window_indices < L  # (L, head_size)
     window_indices = torch.where(valid_indices_mask, window_indices, torch.tensor(0, dtype=torch.long, device=device))
 
     # Expand indices for batch and gather tokens
-    window_indices_expanded = window_indices.unsqueeze(0).expand(B, -1, -1)  # (B, L-1, head_size)
-    input_expanded = input_ids.unsqueeze(1).expand(-1, L - 1, -1)  # (B, L-1, L)
-    tokens = torch.gather(input_expanded, 2, window_indices_expanded)  # (B, L-1, head_size)
+    window_indices_expanded = window_indices.unsqueeze(0).expand(B, -1, -1)  # (B, L, head_size)
+    input_expanded = input_ids.unsqueeze(1).expand(-1, L, -1)  # (B, L, L)
+    tokens = torch.gather(input_expanded, 2, window_indices_expanded)  # (B, L, head_size)
 
     # Create combined mask (valid indices and not ignored)
     ignore_mask = (tokens != ignore_idx)
-    combined_mask = valid_indices_mask.unsqueeze(0) & ignore_mask  # (B, L-1, head_size)
+    combined_mask = valid_indices_mask.unsqueeze(0) & ignore_mask  # (B, L, head_size)
 
     # Replace ignored tokens with 0 to avoid out-of-bounds (results in an error otherwise)
     tokens_filtered = tokens.clone()
     tokens_filtered[~combined_mask] = 0
 
     # Compute relative frequencies using scatter_add
-    relative_freq = torch.zeros(B, L - 1, vocab_size, device=device)
+    relative_freq = torch.zeros(B, L, vocab_size, device=device)
     relative_freq.scatter_add_(
         dim=2,
         index=tokens_filtered,          # no negative indices now!
@@ -149,7 +149,7 @@ class MultiheadGPT(Transformer):
                 vocab_size = head_logits.shape[-1]  # B x L x V
                 # Calculate loss with ignore_index=-1, meaning we skip the gradient contributions from those tokens which is basically the prefix tokens
                 head_targets = compute_targets_optimized(targets, vocab_size, head_size, self.ignore_idx, boundary_condition="normalize")
-                head_loss = self.loss_fn(head_logits[:, :-1, :], head_targets)  # ignore the last token as there is no corresponding target
+                head_loss = self.loss_fn(head_logits, head_targets)
                 total_loss += head_loss * self.head_weights[head_idx]
                 if head_idx == 0:
                     assert head_size == 1, f"head size should be 1. found: {head_size}"
@@ -190,7 +190,7 @@ if __name__ == "__main__":
     targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
     print(targets_optim.shape)
     print(targets_optim)
-    assert (targets == targets_optim).all()
+    assert (targets == targets_optim).all(), f"{torch.where(targets != targets_optim)}"
 
     n_samples = 100
     for _ in tqdm(range(n_samples)):
