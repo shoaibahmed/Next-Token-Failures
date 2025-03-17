@@ -15,7 +15,8 @@ def get_model(args):
         head_weights = [float(x) for x in args.prediction_head_weights.split(",")]
         config = GPTConfig(n_layers=args.n_layer, n_heads=args.n_head, n_embd=args.n_embd, block_size=args.block_size,
                            bias=True, vocab_size=args.vocab_size, dropout=0, use_flash=args.use_flash,
-                           teacherless_token=args.teacherless_token, head_sizes=head_sizes, head_weights=head_weights)
+                           teacherless_token=args.teacherless_token, head_sizes=head_sizes, head_weights=head_weights,
+                           boundary_condition=args.multihead_boundary_condition)
         model = MultiheadGPT(config)
     elif args.model.startswith('gpt2'):
         model = GPT.from_pretrained(args.model, teacherless_token=args.teacherless_token)

@@ -90,6 +90,9 @@ parser.add_argument(
 parser.add_argument(
     "--prediction_head_weights", type=str, default='1', help='Weights to be assigned to the different predictions heads for model training'
     )
+parser.add_argument(
+    "--multihead_boundary_condition", type=str, default='normalize', help='Boundary condition to be used when computing multi-head targets'
+    )
 
 args = parser.parse_args()
 # System stuff

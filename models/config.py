@@ -49,6 +49,7 @@ class GPTConfig:
     max_bsz: int = 16
     head_sizes: List[int] = field(default_factory = lambda: [1])
     head_weights: List[float] = field(default_factory = lambda: [1.])
+    boundary_condition: str = 'normalize'
 
 
 @dataclass

@@ -112,6 +112,7 @@ class MultiheadGPT(Transformer):
         # Set the new args
         self.head_sizes = config.head_sizes
         self.head_weights = config.head_weights
+        self.boundary_condition = config.boundary_condition
         assert len(self.head_sizes) == len(self.head_weights), f"{len(self.head_sizes)} != {len(self.head_weights)}"
         assert self.head_sizes[0] == 1, "First head should have a size of 1"
 
@@ -150,7 +151,7 @@ class MultiheadGPT(Transformer):
                 head_logits = self.lm_head(head_output)
                 vocab_size = head_logits.shape[-1]  # B x L x V
                 # Calculate loss with ignore_index=-1, meaning we skip the gradient contributions from those tokens which is basically the prefix tokens
-                head_targets = compute_targets_optimized(targets, vocab_size, head_size, self.ignore_idx, boundary_condition="normalize")
+                head_targets = compute_targets_optimized(targets, vocab_size, head_size, self.ignore_idx, boundary_condition=self.boundary_condition)
                 head_loss = self.loss_fn(head_logits, head_targets)
                 total_loss += head_loss * self.head_weights[head_idx]
                 if head_idx == 0:
