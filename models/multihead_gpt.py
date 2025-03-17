@@ -25,7 +25,8 @@ class CrossEntropyLoss(torch.nn.Module):
         return loss
 
 
-def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, boundary_condition: str = "normalize") -> torch.Tensor:
+def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, ignore_idx: int = -100,
+                    boundary_condition: str = "normalize") -> torch.Tensor:
     """
     Boundary condition defines how we deal with the boundary condition as we reach the end of the sequence.
     - normalize: just renormalize the sequence based on the available elements and count
@@ -38,11 +39,15 @@ def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, bo
     B, seq_len = input_ids.shape
 
     relative_freq = torch.zeros(B, seq_len-1, vocab_size).to(input_ids.device)  # B x (L-1) x V
-    weights = torch.ones_like(relative_freq[:, 0, :])  # B x V
     for start_idx in range(1, seq_len):  # targets are one token less than the sequence
         last_idx = min(start_idx + head_size, seq_len)
-        current_input_chunk = input_ids[:, start_idx:last_idx]
-        relative_freq[:, start_idx-1, :] = torch.scatter_add(relative_freq[:, start_idx-1, :], dim=1, index=current_input_chunk, src=weights)
+        for b in range(B):
+            current_input_chunk = input_ids[b, start_idx:last_idx]
+            keep_mask = current_input_chunk != ignore_idx
+            valid_indices = current_input_chunk[keep_mask]  # shape [num_valid]
+            relative_freq[b, start_idx-1, :] = torch.scatter_add(relative_freq[b, start_idx-1, :], dim=0, index=valid_indices,
+                                                                 src=torch.ones(valid_indices.shape, device=relative_freq.device))
+
     if boundary_condition == "normalize":
         relative_freq = relative_freq / relative_freq.sum(dim=-1, keepdim=True)  # normalize by the actual frequency
     else:
@@ -66,10 +71,12 @@ class MultiheadGPT(Transformer):
 
         # Setup the prediction heads
         self.prediction_heads = [copy.deepcopy(self.layers[-1]) for _ in range(len(self.head_sizes))]
+        self.prediction_heads = torch.nn.ModuleList(self.prediction_heads)  # wrap into module list to ensure .to(device) works as expected
         del self.layers[-1]  # remove the final layer itself
 
         # Define the loss function
-        self.loss_fn = CrossEntropyLoss(ignore_idx=-1)
+        self.ignore_idx = -1
+        self.loss_fn = CrossEntropyLoss(ignore_idx=self.ignore_idx)
 
     def forward(self, idx, targets=None):
         device = idx.device
@@ -97,8 +104,8 @@ class MultiheadGPT(Transformer):
                 head_logits = self.lm_head(head_output)
                 vocab_size = head_logits.shape[-1]  # B x L x V
                 # Calculate loss with ignore_index=-1, meaning we skip the gradient contributions from those tokens which is basically the prefix tokens
-                head_targets = compute_targets(targets, vocab_size, head_size)
-                head_loss = self.loss_fn(head_logits, head_targets)
+                head_targets = compute_targets(targets, vocab_size, head_size, self.ignore_idx, boundary_condition="normalize")
+                head_loss = self.loss_fn(head_logits[:, :-1, :], head_targets)  # ignore the last token as there is no corresponding target
                 total_loss += head_loss * self.head_weights[head_idx]
                 if head_idx == 0:
                     assert head_size == 1, f"head size should be 1. found: {head_size}"
