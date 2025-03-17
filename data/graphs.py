@@ -58,7 +58,7 @@ def generate_and_save(n_train, n_test, degSource, pathLen, numNodes, reverse=Fal
     """
     Generate a list of train and testing graphs and save them for reproducibility
     """
-    file = open('../data/datasets/graphs/' + 'deg_' + str(degSource) + '_path_' + str(pathLen) + '_nodes_' + str(
+    file = open('./data/datasets/graphs/' + 'deg_' + str(degSource) + '_path_' + str(pathLen) + '_nodes_' + str(
         numNodes) + '_train_' +
           str(n_train) + '.txt', 'w')
 
@@ -79,7 +79,7 @@ def generate_and_save(n_train, n_test, degSource, pathLen, numNodes, reverse=Fal
         file.write(out + '\n')
     file.close()
 
-    file = open('../data/datasets/graphs/' + 'deg_' + str(degSource) + '_path_' + str(pathLen) + '_nodes_' +
+    file = open('./data/datasets/graphs/' + 'deg_' + str(degSource) + '_path_' + str(pathLen) + '_nodes_' +
                 str(numNodes) + '_test_' +
                  str(n_test) + '.txt', 'w')
 
@@ -213,6 +213,8 @@ def get_edge_list_byte(x, num_nodes, path_len, decode):
 
 
 if __name__ == '__main__':
+    # execute with 'python -m data.graphs'
+
     import types
     from data import get_dataset
     from tokenizing import get_tokenizer
@@ -220,7 +222,7 @@ if __name__ == '__main__':
     # Create graphs and save
     n_train = 200000
     n_test = 20000
-    deg = 2
+    deg = 5
     path_len = 5
     num_nodes = 50
     reverse = False
@@ -236,6 +238,7 @@ if __name__ == '__main__':
     args.n_train = n_train
     args.n_test = n_test
     args.reverse = False
+    args.teacherless = False
 
     args.dollar = 11
     tokenizer = get_tokenizer(args)
@@ -255,4 +258,6 @@ if __name__ == '__main__':
     G = nx.Graph()
     G.add_edges_from(edge_list)
     nx.draw(G, with_labels=True)
+    plt.tight_layout()
+    plt.savefig("graph.png", dpi=300, bbox_inches="tight")
     plt.show()
