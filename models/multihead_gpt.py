@@ -49,7 +49,8 @@ def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, ig
                                                                  src=torch.ones(valid_indices.shape, device=relative_freq.device))
 
     if boundary_condition == "normalize":
-        relative_freq = relative_freq / relative_freq.sum(dim=-1, keepdim=True)  # normalize by the actual frequency
+        row_sum = relative_freq.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+        relative_freq = relative_freq / row_sum  # normalize by the actual frequency
     else:
         raise NotImplementedError(f"Boundary condition {boundary_condition} not implemented!")
     return relative_freq
