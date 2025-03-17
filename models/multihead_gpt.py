@@ -9,16 +9,15 @@ from utils.training_utils import accuracy
 
 
 class CrossEntropyLoss(torch.nn.Module):
-    def __init__(self, apply_log_softmax: bool = True, ignore_idx: int = -100):
+    def __init__(self, apply_log_softmax: bool = True):
         super().__init__()
         self.apply_log_softmax = apply_log_softmax
-        self.ignore_idx = ignore_idx
 
     def forward(self, pred_log_probs: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         assert pred_log_probs.shape == target.shape, f"{pred_log_probs.shape} != {target.shape}"
         if self.apply_log_softmax:
             pred_log_probs = torch.nn.functional.log_softmax(pred_log_probs, dim=-1)
-        keep_mask = target[:, :, 0:1] != self.ignore_idx  # assumes that all of the indicates are ignored if true (output shape: [B, L, 1])
+        keep_mask = target.sum(dim=-1, keepdim=True) > 0  # [B, L, 1] -- ignore index have a 0 distribution as the target
         num_elements_kept = max(int(keep_mask.sum()), 1)  # should normalize by at least by 1
         loss = - (keep_mask * target * pred_log_probs).sum(dim=-1).sum() / num_elements_kept  # B x L x V
         return loss
@@ -78,7 +77,7 @@ def compute_targets_optimized(input_ids: torch.Tensor, vocab_size: int, head_siz
     ignore_mask = (tokens != ignore_idx)
     combined_mask = valid_indices_mask.unsqueeze(0) & ignore_mask  # (B, L-1, head_size)
 
-    # Replace ignored tokens with 0 to avoid out-of-bounds
+    # Replace ignored tokens with 0 to avoid out-of-bounds (results in an error otherwise)
     tokens_filtered = tokens.clone()
     tokens_filtered[~combined_mask] = 0
 
@@ -121,7 +120,7 @@ class MultiheadGPT(Transformer):
 
         # Define the loss function
         self.ignore_idx = -1
-        self.loss_fn = CrossEntropyLoss(ignore_idx=self.ignore_idx)
+        self.loss_fn = CrossEntropyLoss()
 
     def forward(self, idx, targets=None):
         device = idx.device
