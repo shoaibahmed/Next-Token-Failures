@@ -37,9 +37,9 @@ def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, ig
     B, L = input_ids.shape
 
     relative_freq = torch.zeros(B, L, vocab_size).to(input_ids.device)  # B x L x V
-    for start_idx in range(L):  # targets are one token less than the sequence
+    for start_idx in range(L):  # iterate over different positions in the sequence
         last_idx = min(start_idx + head_size, L)
-        for b in range(B):
+        for b in range(B):  # need to iterate over B only due to the shape of valid_indices when using the ignore_idx
             current_input_chunk = input_ids[b, start_idx:last_idx]
             keep_mask = current_input_chunk != ignore_idx
             valid_indices = current_input_chunk[keep_mask]  # shape [num_valid]
@@ -56,6 +56,9 @@ def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, ig
 
 def compute_targets_optimized(input_ids: torch.Tensor, vocab_size: int, head_size: int, ignore_idx: int = -100,
                               boundary_condition: str = "normalize") -> torch.Tensor:
+    """
+    Same as the function 'compute_targets', but just faster due to vectorization
+    """
     assert boundary_condition in ["normalize", "ignore", "sink"], boundary_condition
     assert head_size >= 1, head_size
     assert len(input_ids.shape) == 2, input_ids.shape  # B x L
@@ -95,7 +98,6 @@ def compute_targets_optimized(input_ids: torch.Tensor, vocab_size: int, head_siz
         relative_freq = relative_freq / row_sum
     else:
         raise NotImplementedError(f"Boundary condition {boundary_condition} not implemented!")
-
     return relative_freq
 
 
