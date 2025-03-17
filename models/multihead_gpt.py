@@ -1,5 +1,4 @@
 import copy
-from typing import Dict
 
 import torch
 import torch.nn as nn
@@ -36,11 +35,11 @@ def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, ig
     assert boundary_condition in ["normalize", "ignore", "sink"], boundary_condition
     assert head_size >= 1, head_size
     assert len(input_ids.shape) == 2, input_ids.shape  # B x L
-    B, seq_len = input_ids.shape
+    B, L = input_ids.shape
 
-    relative_freq = torch.zeros(B, seq_len-1, vocab_size).to(input_ids.device)  # B x (L-1) x V
-    for start_idx in range(1, seq_len):  # targets are one token less than the sequence
-        last_idx = min(start_idx + head_size, seq_len)
+    relative_freq = torch.zeros(B, L-1, vocab_size).to(input_ids.device)  # B x (L-1) x V
+    for start_idx in range(1, L):  # targets are one token less than the sequence
+        last_idx = min(start_idx + head_size, L)
         for b in range(B):
             current_input_chunk = input_ids[b, start_idx:last_idx]
             keep_mask = current_input_chunk != ignore_idx
@@ -53,6 +52,47 @@ def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, ig
         relative_freq = relative_freq / row_sum  # normalize by the actual frequency
     else:
         raise NotImplementedError(f"Boundary condition {boundary_condition} not implemented!")
+    return relative_freq
+
+
+def compute_targets_optimized(input_ids: torch.Tensor, vocab_size: int, head_size: int, ignore_idx: int = -100,
+                              boundary_condition: str = "normalize") -> torch.Tensor:
+    assert boundary_condition in ["normalize", "ignore", "sink"], boundary_condition
+    assert head_size >= 1, head_size
+    assert len(input_ids.shape) == 2, input_ids.shape  # B x L
+    B, L = input_ids.shape
+
+    device = input_ids.device
+    # Generate window indices and masks
+    t_indices = torch.arange(L - 1, device=device)  # (L-1,)
+    window_indices = t_indices.view(-1, 1) + 1 + torch.arange(head_size, device=device).view(1, -1)  # (L-1, head_size)
+    valid_indices_mask = window_indices < L  # (L-1, head_size)
+    window_indices = torch.where(valid_indices_mask, window_indices, torch.tensor(0, dtype=torch.long, device=device))
+
+    # Expand indices for batch and gather tokens
+    window_indices_expanded = window_indices.unsqueeze(0).expand(B, -1, -1)  # (B, L-1, head_size)
+    input_expanded = input_ids.unsqueeze(1).expand(-1, L - 1, -1)  # (B, L-1, L)
+    tokens = torch.gather(input_expanded, 2, window_indices_expanded)  # (B, L-1, head_size)
+
+    # Create combined mask (valid indices and not ignored)
+    ignore_mask = (tokens != ignore_idx)
+    combined_mask = valid_indices_mask.unsqueeze(0) & ignore_mask  # (B, L-1, head_size)
+
+    # Compute relative frequencies using scatter_add
+    relative_freq = torch.zeros(B, L - 1, vocab_size, device=device)
+    relative_freq.scatter_add_(
+        dim=2,
+        index=tokens.long(),  # (B, L-1, head_size)
+        src=combined_mask.float()  # (B, L-1, head_size)
+    )
+
+    # Normalize if required
+    if boundary_condition == "normalize":
+        row_sum = relative_freq.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+        relative_freq = relative_freq / row_sum
+    else:
+        raise NotImplementedError(f"Boundary condition {boundary_condition} not implemented!")
+
     return relative_freq
 
 
@@ -105,7 +145,7 @@ class MultiheadGPT(Transformer):
                 head_logits = self.lm_head(head_output)
                 vocab_size = head_logits.shape[-1]  # B x L x V
                 # Calculate loss with ignore_index=-1, meaning we skip the gradient contributions from those tokens which is basically the prefix tokens
-                head_targets = compute_targets(targets, vocab_size, head_size, self.ignore_idx, boundary_condition="normalize")
+                head_targets = compute_targets_optimized(targets, vocab_size, head_size, self.ignore_idx, boundary_condition="normalize")
                 head_loss = self.loss_fn(head_logits[:, :-1, :], head_targets)  # ignore the last token as there is no corresponding target
                 total_loss += head_loss * self.head_weights[head_idx]
                 if head_idx == 0:
@@ -119,3 +159,44 @@ class MultiheadGPT(Transformer):
                 break
 
         return logits, total_loss, accs
+
+
+if __name__ == "__main__":
+    import time
+    from tqdm import tqdm
+
+    vocab_size: int = 10
+    seq_len = 100
+
+    input_ids = torch.randint(0, vocab_size, size=(1, seq_len,))
+    print(input_ids.shape)
+    print(input_ids)
+    targets = compute_targets(input_ids, vocab_size, head_size=10)
+    print(targets.shape)
+    print(targets)
+
+    targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10)
+    print(targets_optim.shape)
+    print(targets_optim)
+    assert (targets == targets_optim).all()
+
+    n_samples = 100
+    for _ in tqdm(range(n_samples)):
+        input_ids = torch.randint(0, vocab_size, size=(1, seq_len,))
+        targets = compute_targets(input_ids, vocab_size, head_size=10)
+        targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10)
+        assert (targets == targets_optim).all()
+
+    start_time = time.time()
+    for _ in tqdm(range(n_samples)):
+        input_ids = torch.randint(0, vocab_size, size=(1, seq_len,))
+        targets = compute_targets(input_ids, vocab_size, head_size=10)
+    elapsed = time.time() - start_time
+    print(f"Base implementation elapsed time: {elapsed:.2f} secs")
+
+    start_time = time.time()
+    for _ in tqdm(range(n_samples)):
+        input_ids = torch.randint(0, vocab_size, size=(1, seq_len,))
+        targets = compute_targets_optimized(input_ids, vocab_size, head_size=10)
+    elapsed = time.time() - start_time
+    print(f"Optimized implementation elapsed time: {elapsed:.2f} secs")
