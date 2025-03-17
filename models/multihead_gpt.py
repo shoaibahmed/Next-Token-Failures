@@ -114,9 +114,9 @@ class MultiheadGPT(Transformer):
         assert self.head_sizes[0] == 1, "First head should have a size of 1"
 
         # Setup the prediction heads
-        self.prediction_heads = [copy.deepcopy(self.layers[-1]) for _ in range(len(self.head_sizes))]
+        self.prediction_heads = [Block(config, config.n_layers + layer_idx - 1) for layer_idx in range(len(self.head_sizes))]
         self.prediction_heads = torch.nn.ModuleList(self.prediction_heads)  # wrap into module list to ensure .to(device) works as expected
-        del self.layers[-1]  # remove the final layer itself
+        del self.layers[-1]  # remove the final layer itself as it now absorbed in prediction_heads
 
         # Define the loss function
         self.ignore_idx = -1
