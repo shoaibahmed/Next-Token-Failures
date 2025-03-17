@@ -1,5 +1,5 @@
 from typing import List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 
@@ -47,8 +47,8 @@ class GPTConfig:
     dtype = torch.bfloat16
     cache: bool = True
     max_bsz: int = 16
-    head_sizes: List[int] = [1]
-    head_weights: List[float] = [1.]
+    head_sizes: List[int] = field(default_factory = lambda: [1])
+    head_weights: List[float] = field(default_factory = lambda: [1.])
 
 
 @dataclass

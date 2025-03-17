@@ -93,6 +93,7 @@ class MultiheadGPT(Transformer):
             head_output = self.final_layernorm(head_output)
 
             if targets is not None:
+                targets = targets.to(device)
                 head_logits = self.lm_head(head_output)
                 vocab_size = head_logits.shape[-1]  # B x L x V
                 # Calculate loss with ignore_index=-1, meaning we skip the gradient contributions from those tokens which is basically the prefix tokens

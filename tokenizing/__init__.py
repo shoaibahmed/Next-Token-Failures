@@ -37,7 +37,7 @@ class Tokenizer:
 
 
 def get_tokenizer(args):
-    if args.model == 'gpt':
+    if args.model in ['gpt', 'multihead_gpt']:
         t = NumeralTokenizer(args.num_nodes)
         tokenizer = Tokenizer(encoder=t.encode, decoder=t.decode, vocab_size=args.num_nodes + 4, name='numeral')
     elif args.model.startswith('gpt2'):
@@ -49,5 +49,6 @@ def get_tokenizer(args):
     elif args.model.startswith('phi'):
         t = AutoTokenizer.from_pretrained("microsoft/phi-2", trust_remote_code=True)
         tokenizer = Tokenizer(encoder=t.encode, decoder=t.decode, vocab_size=51200, name='phi')
-
+    else:
+        raise RuntimeError(f"Unknown tokenizer for model {args.model}")
     return tokenizer
