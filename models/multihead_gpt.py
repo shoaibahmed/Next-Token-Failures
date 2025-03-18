@@ -75,22 +75,34 @@ def compute_targets_optimized(input_ids: torch.Tensor, vocab_size: int, head_siz
     assert head_size >= 1, head_size
     assert len(input_ids.shape) == 2, input_ids.shape  # B x L
     B, L = input_ids.shape
-
     device = input_ids.device
-    # Generate window indices and masks
-    t_indices = torch.arange(L, device=device)  # L
-    window_indices = t_indices.view(-1, 1) + torch.arange(head_size, device=device).view(1, -1)  # (L, head_size)
-    valid_indices_mask = window_indices < L  # (L, head_size)
-    window_indices = torch.where(valid_indices_mask, window_indices, torch.tensor(0, dtype=torch.long, device=device))
 
-    # Expand indices for batch and gather tokens
+    if boundary_condition == "ignore":
+        vocab_size += 1  # inflate the vocab size so that it can be discarded at the end
+
+    new_L = L
+    if boundary_condition in ["ignore", "sink"]:
+        sink_token_idx = vocab_size - 1  # Last token is sink
+        sink_tokens = torch.full((B, head_size), sink_token_idx, dtype=input_ids.dtype, device=device)
+        input_ids = torch.cat([input_ids, sink_tokens], dim=1)
+        new_L = L + head_size
+
+    # Generate window indices using NEW sequence length
+    t_indices = torch.arange(L, device=device)  # (L)
+    window_indices = t_indices.view(-1, 1) + torch.arange(head_size, device=device)  # (L, head_size)
+    valid_indices_mask = window_indices < new_L  # (L, head_size)
+
+    # Clamp indices to valid range and replace out-of-bounds with 0
+    window_indices = torch.where(valid_indices_mask, window_indices, torch.tensor(0, device=device))
+
+    # Expand and gather with correct dimensions
     window_indices_expanded = window_indices.unsqueeze(0).expand(B, -1, -1)  # (B, L, head_size)
-    input_expanded = input_ids.unsqueeze(1).expand(-1, L, -1)  # (B, L, L)
+    input_expanded = input_ids.unsqueeze(1).expand(-1, L, -1)  # (B, L, new_L)
     tokens = torch.gather(input_expanded, 2, window_indices_expanded)  # (B, L, head_size)
 
-    # Create combined mask (valid indices and not ignored)
+    # Filtering and normalization logic remains the same
     ignore_mask = (tokens != ignore_idx)
-    combined_mask = valid_indices_mask.unsqueeze(0) & ignore_mask  # (B, L, head_size)
+    combined_mask = valid_indices_mask.unsqueeze(0) & ignore_mask
 
     # Replace ignored tokens with 0 to avoid out-of-bounds (results in an error otherwise)
     tokens_filtered = tokens.clone()
@@ -98,18 +110,14 @@ def compute_targets_optimized(input_ids: torch.Tensor, vocab_size: int, head_siz
 
     # Compute relative frequencies using scatter_add
     relative_freq = torch.zeros(B, L, vocab_size, device=device)
-    relative_freq.scatter_add_(
-        dim=2,
-        index=tokens_filtered,          # no negative indices now!
-        src=combined_mask.float()
-    )
+    relative_freq.scatter_add_(2, tokens_filtered, combined_mask.float())
 
-    # Normalize if required
-    if boundary_condition == "normalize":
-        row_sum = relative_freq.sum(dim=-1, keepdim=True).clamp_min(1e-9)
-        relative_freq = relative_freq / row_sum
-    else:
-        raise NotImplementedError(f"Boundary condition {boundary_condition} not implemented!")
+    # Normalize and handle sink token
+    row_sum = relative_freq.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+    relative_freq = relative_freq / row_sum  # normalize by the actual frequency
+    if boundary_condition == "ignore":
+        relative_freq = relative_freq[:, :, :-1]  # chop the last additional sink token which results in an unnormalized target dist
+
     return relative_freq
 
 
@@ -199,35 +207,43 @@ if __name__ == "__main__":
         input_ids[:, :prefix_len] = ignore_idx  # mask the prefix
         return input_ids
 
-    input_ids = get_input()
-    print(input_ids.shape)
-    print(input_ids)
-    targets = compute_targets(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
-    print(targets.shape)
-    print(targets)
+    for boundary_condition in ["normalize", "ignore", "sink"]:
+        print("="*50)
+        print("~"*20, boundary_condition, "~"*20)
+        print("="*50)
 
-    targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
-    print(targets_optim.shape)
-    print(targets_optim)
-    assert (targets == targets_optim).all(), f"{torch.where(targets != targets_optim)}"
-
-    n_samples = 100
-    for _ in tqdm(range(n_samples)):
         input_ids = get_input()
-        targets = compute_targets(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
-        targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
-        assert (targets == targets_optim).all()
+        print(input_ids.shape)
+        print(input_ids)
+        targets = compute_targets(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx, boundary_condition=boundary_condition)
+        print(targets.shape)
+        print(targets)
 
-    start_time = time.time()
-    for _ in tqdm(range(n_samples)):
-        input_ids = get_input()
-        targets = compute_targets(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
-    elapsed = time.time() - start_time
-    print(f"Base implementation elapsed time: {elapsed:.2f} secs")
+        targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx,
+                                                  boundary_condition=boundary_condition)
+        print(targets_optim.shape)
+        print(targets_optim)
+        assert (targets == targets_optim).all(), f"{torch.where(targets != targets_optim)}"
 
-    start_time = time.time()
-    for _ in tqdm(range(n_samples)):
-        input_ids = get_input()
-        targets = compute_targets_optimized(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
-    elapsed = time.time() - start_time
-    print(f"Optimized implementation elapsed time: {elapsed:.2f} secs")
+        n_samples = 100
+        for _ in tqdm(range(n_samples)):
+            input_ids = get_input()
+            targets = compute_targets(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx)
+            targets_optim = compute_targets_optimized(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx,
+                                                      boundary_condition=boundary_condition)
+            assert (targets == targets_optim).all()
+
+        start_time = time.time()
+        for _ in tqdm(range(n_samples)):
+            input_ids = get_input()
+            targets = compute_targets(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx, boundary_condition=boundary_condition)
+        elapsed = time.time() - start_time
+        print(f"Base implementation elapsed time: {elapsed:.2f} secs")
+
+        start_time = time.time()
+        for _ in tqdm(range(n_samples)):
+            input_ids = get_input()
+            targets = compute_targets_optimized(input_ids, vocab_size, head_size=10, ignore_idx=ignore_idx,
+                                                boundary_condition=boundary_condition)
+        elapsed = time.time() - start_time
+        print(f"Optimized implementation elapsed time: {elapsed:.2f} secs")
