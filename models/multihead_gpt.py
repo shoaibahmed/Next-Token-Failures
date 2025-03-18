@@ -38,18 +38,20 @@ def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, ig
     B, L = input_ids.shape
 
     if boundary_condition == "ignore":
-        vocab_size += 1  # inflate the vocab size so that it can be discarded at the end
+        vocab_size += 1  # inflate the vocab size so that it can be discarded at the end -- sink already has an additional token
 
+    new_L = L
     if boundary_condition in ["ignore", "sink"]:
         # Append sink token to the input_ids so that the model would naturally assign weight to the sink token
         sink_token_idx = vocab_size - 1
         sink_tokens = torch.full(size=(B, head_size), fill_value=sink_token_idx, dtype=input_ids.dtype,
                                  device=input_ids.device)  # sink token is the last token
         input_ids = torch.cat([input_ids, sink_tokens], dim=1)
+        new_L = L + head_size
 
     relative_freq = torch.zeros(B, L, vocab_size).to(input_ids.device)  # B x L x V
     for start_idx in range(L):  # iterate over different positions in the sequence
-        last_idx = min(start_idx + head_size, L)
+        last_idx = min(start_idx + head_size, new_L)  # min only applied to the 'normalize' condition
         for b in range(B):  # need to iterate over B only due to the shape of valid_indices when using the ignore_idx
             current_input_chunk = input_ids[b, start_idx:last_idx]
             keep_mask = current_input_chunk != ignore_idx
