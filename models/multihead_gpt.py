@@ -30,11 +30,22 @@ def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, ig
     - normalize: just renormalize the sequence based on the available elements and count
     - ignore: normalize and ignore the mass assigned the sink token (assumes that there is a sink token) -- results in an unnormalized distribution
     - sink: have a separate sink token, similar to the BOS token
+        - consider the last token as the sink token in the vocab -- added to the LM head
     """
     assert boundary_condition in ["normalize", "ignore", "sink"], boundary_condition
     assert head_size >= 1, head_size
     assert len(input_ids.shape) == 2, input_ids.shape  # B x L
     B, L = input_ids.shape
+
+    if boundary_condition == "ignore":
+        vocab_size += 1  # inflate the vocab size so that it can be discarded at the end
+
+    if boundary_condition in ["ignore", "sink"]:
+        # Append sink token to the input_ids so that the model would naturally assign weight to the sink token
+        sink_token_idx = vocab_size - 1
+        sink_tokens = torch.full(size=(B, head_size), fill_value=sink_token_idx, dtype=input_ids.dtype,
+                                 device=input_ids.device)  # sink token is the last token
+        input_ids = torch.cat([input_ids, sink_tokens], dim=1)
 
     relative_freq = torch.zeros(B, L, vocab_size).to(input_ids.device)  # B x L x V
     for start_idx in range(L):  # iterate over different positions in the sequence
@@ -46,11 +57,12 @@ def compute_targets(input_ids: torch.Tensor, vocab_size: int, head_size: int, ig
             relative_freq[b, start_idx, :] = torch.scatter_add(relative_freq[b, start_idx, :], dim=0, index=valid_indices,
                                                                src=torch.ones(valid_indices.shape, device=relative_freq.device))
 
-    if boundary_condition == "normalize":
-        row_sum = relative_freq.sum(dim=-1, keepdim=True).clamp_min(1e-9)
-        relative_freq = relative_freq / row_sum  # normalize by the actual frequency
-    else:
-        raise NotImplementedError(f"Boundary condition {boundary_condition} not implemented!")
+    # Normalize the frequencies
+    row_sum = relative_freq.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+    relative_freq = relative_freq / row_sum  # normalize by the actual frequency
+    if boundary_condition == "ignore":
+        relative_freq = relative_freq[:, :, :-1]  # chop the last additional sink token which results in an unnormalized target dist
+
     return relative_freq
 
 
@@ -103,6 +115,10 @@ def compute_targets_optimized(input_ids: torch.Tensor, vocab_size: int, head_siz
 
 class MultiheadGPT(Transformer):
     def __init__(self, config):
+        if config.boundary_condition == "sink":
+            config.vocab_size += 1  # add the sink token to the model's vocab
+            print("Updated vocab size with sink token:", config.vocab_size)
+
         super().__init__(config, block=Block)
         # Add positional encoding
         self.pos_encoding = nn.Embedding(config.block_size, config.n_embd)
