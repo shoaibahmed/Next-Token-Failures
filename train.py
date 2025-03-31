@@ -108,7 +108,7 @@ torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
 
 # Basic option validation
-if args.waypoint_len < 1:
+if args.waypoint_len is not None and args.waypoint_len < 1:
     args.waypoint_len = None
 
 # Model stuff
