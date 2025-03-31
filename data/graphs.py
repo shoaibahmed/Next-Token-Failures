@@ -57,6 +57,8 @@ def star_graph(degSource, pathLen, numNodes, reverse=False):
 def generate_and_save(n_train, n_test, degSource, pathLen, numNodes, reverse=False):
     """
     Generate a list of train and testing graphs and save them for reproducibility
+    Data format:
+        [Adjacency list in the format A,B with '|' as the separator]'/'start_node,goal_node'='[PATH with ',' as the delimiter]
     """
     file = open('./data/datasets/graphs/' + 'deg_' + str(degSource) + '_path_' + str(pathLen) + '_nodes_' + str(
         numNodes) + '_train_' +
@@ -102,7 +104,7 @@ def generate_and_save(n_train, n_test, degSource, pathLen, numNodes, reverse=Fal
     file.close()
 
 
-def prefix_target_list(filename=None, reverse=False):
+def prefix_target_list(filename=None, reverse=False, waypoint_len: int = None):
     """
     Load graphs and split them into prefix and target and return the list
     """
@@ -112,6 +114,11 @@ def prefix_target_list(filename=None, reverse=False):
     for line in lines:
         prefix = line.strip().split('=')[0] + '='
         target = line.strip().split('=')[1]
+        if waypoint_len is not None:
+            target_elements = target.split(',')
+            assert 0 < waypoint_len < len(target_elements), f"0 < {waypoint_len} < {len(target_elements)}"
+            waypoint = target_elements[waypoint_len]  # computed on the non-reversed string
+            prefix = ','.join(prefix.split(',')[:-1] + [waypoint])  # update the prefix with the waypoint instead of the goal node (last)
         if reverse:
             target = ','.join(target.split(',')[::-1])
         data_list.append((prefix, target))
@@ -120,7 +127,9 @@ def prefix_target_list(filename=None, reverse=False):
 
 
 class Graphs(Dataset):
-    def __init__(self, tokenizer, n_samples, data_path, device, eval=False, teacherless_token=None, reverse=False):
+    def __init__(self, tokenizer, n_samples, data_path, device, eval=False, teacherless_token=None, reverse=False, waypoint_len: int = None):
+        if waypoint_len is not None:
+            assert waypoint_len > 0, f"Waypoint length should be >= 1. found: {waypoint_len}"
         self.tokenizer = tokenizer
         self.n_samples = n_samples
         self.device = device
@@ -129,7 +138,7 @@ class Graphs(Dataset):
         self.teacherless_token = teacherless_token
         self.reverse = reverse
 
-        self.data_file = prefix_target_list(self.data_path, reverse=reverse)[:n_samples]
+        self.data_file = prefix_target_list(self.data_path, reverse=reverse, waypoint_len=waypoint_len)[:n_samples]
         self.tokenized, self.num_prefix_tokens, self.num_target_tokens = tokenizer.tokenize(self.data_file)
 
         self.num_tokens = self.num_prefix_tokens + self.num_target_tokens

@@ -46,12 +46,14 @@ def accuracy(logits, targets):
 def get_run_name(args):
     name = args.dataset + "_" + args.model
     if args.dataset == 'graph':
-        name += '_deg' + str(args.deg) + '_path_' + str(args.path_len) + 'num_nodes_' + str(args.num_nodes) + \
+        waypoint_str = f"_waypoint_len_{args.waypoint_len}" if args.waypoint_len is not None else ""
+        name += '_deg' + str(args.deg) + '_path_' + str(args.path_len) + 'num_nodes_' + str(args.num_nodes) + waypoint_str + \
                 '_ntrain_' + str(args.n_train) + '_teacherless_' + str(args.teacherless) + '_reverse_' + str(args.reverse)
         if args.model == "multihead_gpt":
             name += f"_heads_{args.prediction_head_sizes}_weights_{args.prediction_head_weights}_boundary_{args.multihead_boundary_condition}"
     elif args.dataset == 'chess':
         assert not args.model == "multihead_gpt", args.model
+        assert args.waypoint_len is None
         name += '_mate_in_' + str(args.mate_in) + '_ntrain_' + str(args.n_train) + '_unrolled_' + str(args.unrolled) + \
                 '_teacherless_' + str(args.teacherless)
 

@@ -93,6 +93,9 @@ parser.add_argument(
 parser.add_argument(
     "--multihead_boundary_condition", type=str, default='normalize', help='Boundary condition to be used when computing multi-head targets'
     )
+parser.add_argument(
+        "--waypoint_len", type=int, default=None, help="Use waypoint task for the graph instead of the endpoint",
+    )
 
 args = parser.parse_args()
 # System stuff
