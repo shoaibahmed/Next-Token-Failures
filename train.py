@@ -107,6 +107,10 @@ torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
 
+# Basic option validation
+if args.waypoint_len < 1:
+    args.waypoint_len = None
+
 # Model stuff
 top_k = 1
 

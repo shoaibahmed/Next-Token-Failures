@@ -118,7 +118,7 @@ def prefix_target_list(filename=None, reverse=False, waypoint_len: int = None):
             target_elements = target.split(',')
             assert 0 < waypoint_len < len(target_elements), f"0 < {waypoint_len} < {len(target_elements)}"
             waypoint = target_elements[waypoint_len]  # computed on the non-reversed string
-            prefix = ','.join(prefix.split(',')[:-1] + [waypoint])  # update the prefix with the waypoint instead of the goal node (last)
+            prefix = ','.join(prefix.split(',')[:-1] + [waypoint]) + '='  # update the prefix with the waypoint instead of the goal node (last)
         if reverse:
             target = ','.join(target.split(',')[::-1])
         data_list.append((prefix, target))
