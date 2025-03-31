@@ -231,16 +231,16 @@ if __name__ == '__main__':
     # Create graphs and save
     n_train = 200000
     n_test = 20000
-    deg = 5
-    path_len = 5
-    num_nodes = 50
+    deg = 2
+    path_len = 20
+    num_nodes = 100
     reverse = False
     generate_and_save(n_train=n_train, n_test=n_test, degSource=deg, pathLen=path_len, numNodes=num_nodes,
                       reverse=reverse)
 
     # Load data
     device = 'cpu'
-    args = types.SimpleNamespace(model='gpt', num_nodes=num_nodes)
+    args = types.SimpleNamespace(model='gpt', num_nodes=num_nodes, waypoint_len=None)
     args.dataset = 'graph'
     args.deg = deg
     args.path_len = path_len
