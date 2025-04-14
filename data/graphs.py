@@ -154,8 +154,14 @@ class Graphs(Dataset):
         self.reverse = reverse
 
         # Waypoint_len 'all' should now populate all possible waypoints inside the dataset
-        # TODO: identify the best way to get incorporate the [:n_samples] subsampling below with 'all' waypoint
-        self.data_file = prefix_target_list(self.data_path, reverse=reverse, waypoint_len=waypoint_len)[:n_samples]
+        self.data_file = prefix_target_list(self.data_path, reverse=reverse, waypoint_len=waypoint_len)
+        subsampling_limit = n_samples
+        if isinstance(waypoint_len, str):
+            assert waypoint_len == "all", waypoint_len
+            multiplier = len(self.data_file[0][1].split(',')) - 1  # ignore the start token in the path
+            subsampling_limit = n_samples * multiplier
+            print(f"Subsampling multiplier: {multiplier} / original limit: {n_samples} / extended limit: {subsampling_limit}")
+        self.data_file = self.data_file[:subsampling_limit]  # subsample
         self.tokenized, self.num_prefix_tokens, self.num_target_tokens = tokenizer.tokenize(self.data_file)
 
         self.num_tokens = self.num_prefix_tokens + self.num_target_tokens
