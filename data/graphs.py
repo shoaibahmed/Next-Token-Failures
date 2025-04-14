@@ -1,7 +1,9 @@
+import random
+from typing import Union
+
 import torch
 from torch.utils.data import Dataset
 import numpy as np
-import random
 
 
 def star_graph(degSource, pathLen, numNodes, reverse=False):
@@ -104,7 +106,7 @@ def generate_and_save(n_train, n_test, degSource, pathLen, numNodes, reverse=Fal
     file.close()
 
 
-def prefix_target_list(filename=None, reverse=False, waypoint_len: int = None):
+def prefix_target_list(filename=None, reverse=False, waypoint_len: Union[int, str] = None):
     """
     Load graphs and split them into prefix and target and return the list
     """
@@ -116,20 +118,33 @@ def prefix_target_list(filename=None, reverse=False, waypoint_len: int = None):
         target = line.strip().split('=')[1]
         if waypoint_len is not None:
             target_elements = target.split(',')
+            base_prefix_parts = prefix.split(',')[:-1]
+            if isinstance(waypoint_len, str):
+                assert waypoint_len == "all", waypoint_len
+                if reverse:
+                    target = ','.join(target_elements[::-1])
+                for current_len in range(1, len(target_elements)):
+                    waypoint = target_elements[current_len]  # computed on the non-reversed string
+                    new_prefix = ','.join(base_prefix_parts + [waypoint]) + '='  # update the prefix with the waypoint instead of the goal node (last)
+                    data_list.append((new_prefix, target))
+                continue
             assert 0 < waypoint_len < len(target_elements), f"0 < {waypoint_len} < {len(target_elements)}"
             waypoint = target_elements[waypoint_len]  # computed on the non-reversed string
-            prefix = ','.join(prefix.split(',')[:-1] + [waypoint]) + '='  # update the prefix with the waypoint instead of the goal node (last)
+            prefix = ','.join(base_prefix_parts + [waypoint]) + '='  # update the prefix with the waypoint instead of the goal node (last)
         if reverse:
             target = ','.join(target.split(',')[::-1])
         data_list.append((prefix, target))
-
+    print(f"total lines: {len(lines)} / data list length: {len(data_list)}")
     return data_list
 
 
 class Graphs(Dataset):
-    def __init__(self, tokenizer, n_samples, data_path, device, eval=False, teacherless_token=None, reverse=False, waypoint_len: int = None):
+    def __init__(self, tokenizer, n_samples, data_path, device, eval=False, teacherless_token=None, reverse=False, waypoint_len: Union[int, str] = None):
         if waypoint_len is not None:
-            assert waypoint_len > 0, f"Waypoint length should be >= 1. found: {waypoint_len}"
+            if isinstance(waypoint_len, int):
+                assert waypoint_len > 0, f"Waypoint length should be >= 1. found: {waypoint_len}"
+            else:
+                assert waypoint_len == "all", waypoint_len
         self.tokenizer = tokenizer
         self.n_samples = n_samples
         self.device = device
@@ -138,7 +153,15 @@ class Graphs(Dataset):
         self.teacherless_token = teacherless_token
         self.reverse = reverse
 
-        self.data_file = prefix_target_list(self.data_path, reverse=reverse, waypoint_len=waypoint_len)[:n_samples]
+        # Waypoint_len 'all' should now populate all possible waypoints inside the dataset
+        self.data_file = prefix_target_list(self.data_path, reverse=reverse, waypoint_len=waypoint_len)
+        subsampling_limit = n_samples
+        if isinstance(waypoint_len, str):
+            assert waypoint_len == "all", waypoint_len
+            multiplier = len(self.data_file[0][1].split(',')) - 1  # ignore the start token in the path
+            subsampling_limit = n_samples * multiplier
+            print(f"Subsampling multiplier: {multiplier} / original limit: {n_samples} / extended limit: {subsampling_limit}")
+        self.data_file = self.data_file[:subsampling_limit]  # subsample
         self.tokenized, self.num_prefix_tokens, self.num_target_tokens = tokenizer.tokenize(self.data_file)
 
         self.num_tokens = self.num_prefix_tokens + self.num_target_tokens

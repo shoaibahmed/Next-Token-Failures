@@ -94,7 +94,7 @@ parser.add_argument(
     "--multihead_boundary_condition", type=str, default='normalize', help='Boundary condition to be used when computing multi-head targets'
     )
 parser.add_argument(
-        "--waypoint_len", type=int, default=None, help="Use waypoint task for the graph instead of the endpoint",
+        "--waypoint_len", type=str, default=None, help="Use waypoint task for the graph instead of the endpoint",
     )
 
 args = parser.parse_args()
@@ -108,8 +108,13 @@ torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
 
 # Basic option validation
-if args.waypoint_len is not None and args.waypoint_len < 1:
-    args.waypoint_len = None
+if args.waypoint_len is not None:
+    if args.waypoint_len.isdigit():
+        args.waypoint_len = int(args.waypoint_len)
+    else:
+        assert args.waypoint_len == "all", args.waypoint_len
+    if isinstance(args.waypoint_len, int) and args.waypoint_len < 1:
+        args.waypoint_len = None
 
 # Model stuff
 top_k = 1
@@ -142,7 +147,15 @@ tokenizer = get_tokenizer(args)
 train_data, test_data = get_dataset(args, tokenizer, device)
 
 train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
-test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True)
+print(f"train dataset: {len(train_data)} / train loader: {len(train_loader)}")
+if isinstance(test_data, dict):
+    test_loader = {}
+    for k in test_data.keys():
+        test_loader[k] = DataLoader(test_data[k], batch_size=args.batch_size, shuffle=True)
+        print(f"test dataset {k}: {len(test_data[k])} / test loader: {len(test_loader[k])}")
+else:
+    test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True)
+    print(f"test dataset: {len(test_data)} / test loader: {len(test_loader)}")
 
 max_iters = len(train_data) * args.epochs
 lr_decay_iters = max_iters
@@ -207,8 +220,16 @@ for ep in range(args.epochs):
             results = evaluate(model, train_loader, temperature=0.8, top_k=top_k, results=results, mode='train')
             results = evaluate_forced(model, train_loader, results=results, mode='train')
 
-        results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='test')
-        results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='test')
-
-        if wandb_log:
-            wandb.log(results)
+        if isinstance(test_loader, dict):
+            for k in test_loader.keys():
+                if k not in results:
+                    results[k] = {}
+                results[k] = evaluate(model, test_loader[k], temperature=0.8, ctx=ctx, top_k=top_k, results=results[k], mode=f'test_{k}')
+                results[k] = evaluate_forced(model, test_loader[k], ctx=ctx, results=results[k], mode=f'test_{k}')
+                if wandb_log:
+                    wandb.log(results[k])
+        else:
+            results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='test')
+            results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='test')
+            if wandb_log:
+                wandb.log(results)
