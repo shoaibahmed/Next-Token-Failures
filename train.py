@@ -147,12 +147,15 @@ tokenizer = get_tokenizer(args)
 train_data, test_data = get_dataset(args, tokenizer, device)
 
 train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
+print(f"train dataset: {len(train_data)} / train loader: {len(train_loader)}")
 if isinstance(test_data, dict):
     test_loader = {}
     for k in test_data.keys():
         test_loader[k] = DataLoader(test_data[k], batch_size=args.batch_size, shuffle=True)
+        print(f"test dataset {k}: {len(test_data[k])} / test loader: {len(test_loader[k])}")
 else:
     test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True)
+    print(f"test dataset: {len(test_data)} / test loader: {len(test_loader)}")
 
 max_iters = len(train_data) * args.epochs
 lr_decay_iters = max_iters

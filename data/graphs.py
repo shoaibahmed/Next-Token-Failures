@@ -134,7 +134,7 @@ def prefix_target_list(filename=None, reverse=False, waypoint_len: Union[int, st
         if reverse:
             target = ','.join(target.split(',')[::-1])
         data_list.append((prefix, target))
-
+    print(f"total lines: {len(lines)} / data list length: {len(data_list)}")
     return data_list
 
 
@@ -154,6 +154,7 @@ class Graphs(Dataset):
         self.reverse = reverse
 
         # Waypoint_len 'all' should now populate all possible waypoints inside the dataset
+        # TODO: identify the best way to get incorporate the [:n_samples] subsampling below with 'all' waypoint
         self.data_file = prefix_target_list(self.data_path, reverse=reverse, waypoint_len=waypoint_len)[:n_samples]
         self.tokenized, self.num_prefix_tokens, self.num_target_tokens = tokenizer.tokenize(self.data_file)
 
