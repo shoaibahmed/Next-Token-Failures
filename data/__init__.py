@@ -25,8 +25,16 @@ def get_dataset(args, tokenizer, device):
         train_path, test_path = data_path + '_train_200000.txt', data_path + '_test_20000.txt'
         train_data = Graphs(tokenizer=tokenizer, n_samples=args.n_train, data_path=train_path, device=device,
                             teacherless_token=teacherless_token, reverse=args.reverse, waypoint_len=args.waypoint_len)
-        test_data = Graphs(tokenizer=tokenizer, n_samples=args.n_test, data_path=test_path, device=device,
-                           teacherless_token=teacherless_token, reverse=args.reverse, waypoint_len=args.waypoint_len)
+        if args.waypoint_len is None and isinstance(args.waypoint_len, str):
+            assert args.waypoint_len == "all", args.waypoint_len
+            test_data = {}
+            for waypoint_len in range(1, args.path_len):
+                test_data_wp = Graphs(tokenizer=tokenizer, n_samples=args.n_test, data_path=test_path, device=device,
+                                      teacherless_token=teacherless_token, reverse=args.reverse, waypoint_len=waypoint_len)
+                test_data[f"waypoint_len_{waypoint_len}"] = test_data_wp
+        else:
+            test_data = Graphs(tokenizer=tokenizer, n_samples=args.n_test, data_path=test_path, device=device,
+                               teacherless_token=teacherless_token, reverse=args.reverse, waypoint_len=args.waypoint_len)
 
     return train_data, test_data
 
