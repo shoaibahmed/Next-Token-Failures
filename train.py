@@ -222,10 +222,12 @@ for ep in range(args.epochs):
 
         if isinstance(test_loader, dict):
             for k in test_loader.keys():
-                results = evaluate(model, test_loader[k], temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode=f'test_{k}')
-                results = evaluate_forced(model, test_loader[k], ctx=ctx, results=results, mode=f'test_{k}')
+                if k not in results:
+                    results[k] = {}
+                results[k] = evaluate(model, test_loader[k], temperature=0.8, ctx=ctx, top_k=top_k, results=results[k], mode=f'test_{k}')
+                results[k] = evaluate_forced(model, test_loader[k], ctx=ctx, results=results[k], mode=f'test_{k}')
                 if wandb_log:
-                    wandb.log(results)
+                    wandb.log(results[k])
         else:
             results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='test')
             results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='test')
