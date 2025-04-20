@@ -84,7 +84,7 @@ for idx, full_name in enumerate(name_list):
 
     if waypoint_len not in waypoint_dict:
         waypoint_dict[waypoint_len] = {}
-    current_key = f"H: {heads} / B: {boundary_cond}" if heads is not None else "Orig"
+    current_key = f"H: {heads} / B: {boundary_cond}" if heads is not None else "Default"
     if current_key not in waypoint_dict[waypoint_len]:
         waypoint_dict[waypoint_len][current_key] = []
     waypoint_dict[waypoint_len][current_key].append(acc[:, 0])
@@ -103,10 +103,11 @@ for idx, waypoint_len in enumerate(waypoint_dict.keys()):
         mean, std = np.mean(val_list, axis=0), np.std(val_list, axis=0)
         x = list(range(1, len(mean)+1))
         ax[plot_x, plot_y].plot(x, mean, label=model_config, linewidth=4, alpha=0.7)
-        ax[plot_x, plot_y].fill_between(x, mean-std, mean+std, alpha=0.2)
+        ax[plot_x, plot_y].fill_between(x, mean-std, mean+std, alpha=0.1)
 
     ax[plot_x, plot_y].set_ylim(0., 100.)
-    ax[plot_x, plot_y].legend(loc="lower left", fontsize=fontsize-4)
+    if idx == 3:
+        ax[plot_x, plot_y].legend(loc="lower left", fontsize=fontsize-4)
     ax[plot_x, plot_y].set_title(f"Waypoint len: {waypoint_len}", fontsize=fontsize)
 
     ax[plot_x, plot_y].tick_params(axis='both', which='major', labelsize=fontsize)
