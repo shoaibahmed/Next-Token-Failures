@@ -80,7 +80,6 @@ for idx, full_name in enumerate(name_list):
         heads = full_name.split("_heads_")[1].split("_")[0]
         weights = full_name.split("_heads_")[1].split("_")[2]
         boundary_cond = full_name.split("_boundary_")[1].split("_")[0]
-        heads = weights  # due to a bug in the file name
 
     if waypoint_len not in waypoint_dict:
         waypoint_dict[waypoint_len] = {}
