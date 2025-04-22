@@ -11,11 +11,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
-timestamp = "19_04_25"
+timestamp = "correct_22_04_25"
 pickle_output_file = f"next_token_data_{timestamp}.pkl"
 if not os.path.exists(pickle_output_file):
     api = wandb.Api()
-    project_name = "next-token-failures-waypoint"
+    project_name = "next-token-failures-waypoint-correct"
 
     # Fetch all runs in the specified project
     runs = api.runs(path=project_name)
@@ -58,7 +58,7 @@ summary_list = output_dict["summary_list"]
 data_list = output_dict["data_list"]
 print("Model names:", name_list)
 
-output_file_format = "png"
+output_file_format = "pdf"
 plots_output_dir = f"plots_waypoint_{timestamp}/"
 if not os.path.exists(plots_output_dir):
     os.mkdir(plots_output_dir)
@@ -92,6 +92,7 @@ for idx, full_name in enumerate(name_list):
 assert len(waypoint_dict.keys()) == 4, waypoint_dict.keys()
 fig, ax = plt.subplots(2, 2, figsize=(8, 8), sharex=True, sharey=True)  # 4 waypoints
 fontsize = 18
+plot_conf_interval = True
 for idx, waypoint_len in enumerate(waypoint_dict.keys()):
     plot_x = idx % 2
     plot_y = idx // 2
@@ -102,7 +103,14 @@ for idx, waypoint_len in enumerate(waypoint_dict.keys()):
         mean, std = np.mean(val_list, axis=0), np.std(val_list, axis=0)
         x = list(range(1, len(mean)+1))
         ax[plot_x, plot_y].plot(x, mean, label=model_config, linewidth=4, alpha=0.7)
-        ax[plot_x, plot_y].fill_between(x, mean-std, mean+std, alpha=0.1)
+        if plot_conf_interval:
+            standard_error = std / np.sqrt(val_list.shape[0])  # standard err = standard dev / sqrt(n)
+            min_range = mean - 1.96 * standard_error
+            max_range = mean + 1.96 * standard_error
+        else:
+            min_range = mean - std
+            max_range = mean + std
+        ax[plot_x, plot_y].fill_between(x, min_range, max_range, alpha=0.1)
 
     ax[plot_x, plot_y].set_ylim(0., 100.)
     if idx == 3:
@@ -116,7 +124,8 @@ fig.supxlabel('Training epochs', fontsize=fontsize)
 fig.supylabel('Accuracy (%)', fontsize=fontsize)
 
 plt.tight_layout()
-plt.savefig(os.path.join(plots_output_dir, f"{full_name}.{output_file_format}"), dpi=300, bbox_inches="tight")
+output_file = os.path.join(plots_output_dir, f"graph_waypoint_task{'_conf_int' if plot_conf_interval else ''}.{output_file_format}")
+plt.savefig(output_file, dpi=300, bbox_inches="tight")
 plt.close()
 
 print("Plotting finished")
