@@ -1,12 +1,12 @@
 #!/bin/python
 
 import os
-import re
 import wandb
 import pickle
 
 import numpy as np
 import pandas as pd
+import scipy.stats as st
 
 import matplotlib.pyplot as plt
 
@@ -100,19 +100,23 @@ for idx, waypoint_len in enumerate(waypoint_dict.keys()):
     for model_config in waypoint_dict[waypoint_len].keys():
         val_list = np.stack(waypoint_dict[waypoint_len][model_config], axis=0)
         print("Val list:", val_list.shape)
-        mean, std = np.mean(val_list, axis=0), np.std(val_list, axis=0)
+        n = val_list.shape[0]  # number of runs
+        assert n > 1, n
+
+        mean, std = np.mean(val_list, axis=0), np.std(val_list, axis=0, ddof=1)
         x = list(range(1, len(mean)+1))
         ax[plot_x, plot_y].plot(x, mean, label=model_config, linewidth=4, alpha=0.7)
         if plot_conf_interval:
-            standard_error = std / np.sqrt(val_list.shape[0])  # standard err = standard dev / sqrt(n)
-            min_range = mean - 1.96 * standard_error
-            max_range = mean + 1.96 * standard_error
+            standard_error = std / np.sqrt(n)  # standard err = standard dev / sqrt(n)
+            t_val = st.t.ppf(0.975, df=n-1)      # 95 % two‑sided
+            min_range = mean - t_val * standard_error
+            max_range = mean + t_val * standard_error
         else:
             min_range = mean - std
             max_range = mean + std
         ax[plot_x, plot_y].fill_between(x, min_range, max_range, alpha=0.1)
 
-    ax[plot_x, plot_y].set_ylim(0., 100.)
+    # ax[plot_x, plot_y].set_ylim(0., 100.)
     if idx == 3:
         ax[plot_x, plot_y].legend(loc="lower left", fontsize=fontsize-4)
     ax[plot_x, plot_y].set_title(f"Waypoint len: {waypoint_len}", fontsize=fontsize)
