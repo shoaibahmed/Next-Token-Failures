@@ -11,7 +11,7 @@ import scipy.stats as st
 import matplotlib.pyplot as plt
 
 
-timestamp = "correct_22_04_25"
+timestamp = "correct_24_04_25"
 pickle_output_file = f"next_token_data_{timestamp}.pkl"
 if not os.path.exists(pickle_output_file):
     api = wandb.Api()
@@ -116,9 +116,11 @@ for idx, waypoint_len in enumerate(waypoint_dict.keys()):
             max_range = mean + std
         ax[plot_x, plot_y].fill_between(x, min_range, max_range, alpha=0.1)
 
-    # ax[plot_x, plot_y].set_ylim(0., 100.)
-    if idx == 3:
-        ax[plot_x, plot_y].legend(loc="lower left", fontsize=fontsize-4)
+    ax[plot_x, plot_y].set_ylim(-5, 105.)
+    # if idx == 3:
+    #     ax[plot_x, plot_y].legend(loc="lower left", fontsize=fontsize-4)
+    if idx == 0:
+        plt.figlegend(loc='upper center', bbox_to_anchor=(0.5, 1.12), fancybox=True, shadow=True, ncol=2, fontsize=fontsize)
     ax[plot_x, plot_y].set_title(f"Waypoint len: {waypoint_len}", fontsize=fontsize)
 
     ax[plot_x, plot_y].tick_params(axis='both', which='major', labelsize=fontsize)
