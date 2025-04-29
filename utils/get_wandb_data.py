@@ -11,11 +11,12 @@ import scipy.stats as st
 import matplotlib.pyplot as plt
 
 
-timestamp = "correct_24_04_25"
+timestamp = "10path_28_04_25"
 pickle_output_file = f"next_token_data_{timestamp}.pkl"
 if not os.path.exists(pickle_output_file):
     api = wandb.Api()
-    project_name = "next-token-failures-waypoint-correct"
+    # project_name = "next-token-failures-waypoint-correct"
+    project_name = "next-token-failures-waypoint-path-10"
 
     # Fetch all runs in the specified project
     runs = api.runs(path=project_name)
@@ -89,13 +90,20 @@ for idx, full_name in enumerate(name_list):
     waypoint_dict[waypoint_len][current_key].append(acc[:, 0])
 
 # Plot the predictions
-assert len(waypoint_dict.keys()) == 4, waypoint_dict.keys()
-fig, ax = plt.subplots(2, 2, figsize=(8, 8), sharex=True, sharey=True)  # 4 waypoints
+num_waypoints = len(waypoint_dict.keys())
+print("Total number of waypoints:", num_waypoints)
+assert num_waypoints in [4, 9], num_waypoints
+plots_per_row = 2
+if num_waypoints == 9:
+    plots_per_row = 3
+assert num_waypoints % plots_per_row == 0, f"{num_waypoints} % {plots_per_row} != 0"
+
+fig, ax = plt.subplots(num_waypoints // plots_per_row, plots_per_row, figsize=(8, 8), sharex=True, sharey=True)  # 4 waypoints
 fontsize = 18
 plot_conf_interval = True
 for idx, waypoint_len in enumerate(waypoint_dict.keys()):
-    plot_x = idx % 2
-    plot_y = idx // 2
+    plot_x = idx % plots_per_row
+    plot_y = idx // plots_per_row
 
     for model_config in waypoint_dict[waypoint_len].keys():
         val_list = np.stack(waypoint_dict[waypoint_len][model_config], axis=0)
