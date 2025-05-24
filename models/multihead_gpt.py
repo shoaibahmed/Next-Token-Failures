@@ -140,8 +140,9 @@ class MultiheadGPT(Transformer):
         self.head_weights = config.head_weights
         self.boundary_condition = config.boundary_condition
         self.use_bow_loss = "bow" in self.head_sizes
+        self.separate_bow_head = "separate_bow" in self.head_sizes
         self.bow_loss_weight = None
-        if self.use_bow_loss:
+        if self.use_bow_loss and not self.separate_bow_head:
             # Remove the BoW args from the head size and head weight so that it is not counted in the head limit
             # Note: BoW loss is only applied to the next-token prediction head right now
             bow_idx = [i for i in range(len(self.head_sizes)) if self.head_sizes[i] == "bow"]
@@ -188,30 +189,36 @@ class MultiheadGPT(Transformer):
                 targets = targets.to(device)
                 head_logits = self.lm_head(head_output)
                 vocab_size = head_logits.shape[-1]  # B x L x V
+
                 # Calculate loss with ignore_index=-1, meaning we skip the gradient contributions from those tokens which is basically the prefix tokens
-                head_targets = compute_targets_optimized(targets, vocab_size, head_size, self.ignore_idx, boundary_condition=self.boundary_condition)
-                head_loss = self.loss_fn(head_logits, head_targets)
-                total_loss += head_loss * self.head_weights[head_idx]
+                if head_size != "separate_bow":  # ignore target computation for BoW separate head
+                    head_targets = compute_targets_optimized(targets, vocab_size, head_size, self.ignore_idx, boundary_condition=self.boundary_condition)
+                    head_loss = self.loss_fn(head_logits, head_targets)
+                    total_loss += head_loss * self.head_weights[head_idx]
+
                 if head_idx == 0:
                     assert head_size == 1, f"head size should be 1. found: {head_size}"
                     acc, token_acc = accuracy(head_logits, targets)
                     accs = {"acc": acc, "token_acc": token_acc}
                     logits = head_logits
 
-                    if self.use_bow_loss:
-                        # TODO: finalize the right representation
-                        # Sum up the representation from the entire sequence and compute BoW logits
-                        bs = len(targets)
-                        seq_rep = head_output.mean(dim=1)  # BLD -> BD
-                        bow_logits = self.lm_head(seq_rep)  # BD -> BV
+                if self.use_bow_loss and ((not self.separate_bow_head and head_idx == 0) or (self.separate_bow_head and head_size == "separate_bow")):
+                    # TODO: finalize the right representation
+                    # Sum up the representation from the entire sequence and compute BoW logits
+                    bs = len(targets)
+                    seq_rep = head_output.mean(dim=1)  # BLD -> BD
+                    bow_logits = self.lm_head(seq_rep)  # BD -> BV
 
-                        # Compute BoW targets
-                        bow_target = targets[targets != self.ignore_idx].reshape(bs, -1)
-                        bow_target = torch.nn.functional.one_hot(bow_target, num_classes=vocab_size)
-                        bow_target = torch.sum(bow_target, dim=1).type(torch.bool).float()
+                    # Compute BoW targets
+                    bow_target = targets[targets != self.ignore_idx].reshape(bs, -1)
+                    bow_target = torch.nn.functional.one_hot(bow_target, num_classes=vocab_size)
+                    bow_target = torch.sum(bow_target, dim=1).type(torch.bool).float()
 
-                        # Compute the final loss
-                        bow_loss = self.bce_loss(bow_logits, bow_target) / bs
+                    # Compute the final loss
+                    bow_loss = self.bce_loss(bow_logits, bow_target) / bs
+                    if self.separate_bow_head:
+                        total_loss += self.head_weights[head_idx] * bow_loss
+                    else:
                         total_loss += self.bow_loss_weight * bow_loss
             else:
                 # inference-time mini-optimization: only forward the lm_head on the very last position
