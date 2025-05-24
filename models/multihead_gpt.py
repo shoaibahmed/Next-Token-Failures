@@ -203,14 +203,16 @@ class MultiheadGPT(Transformer):
                     logits = head_logits
 
                 if self.use_bow_loss and ((not self.separate_bow_head and head_idx == 0) or (self.separate_bow_head and head_size == "separate_bow")):
-                    # TODO: finalize the right representation
-                    # Sum up the representation from the entire sequence and compute BoW logits
+                    # TODO: finalize the right representation -- using the representation at the end of the prefix at this point
+                    # Compute the BoW logits using the representation at the end of the prefix (first unmasked token target)
                     bs = len(targets)
-                    seq_rep = head_output.mean(dim=1)  # BLD -> BD
+                    unmasked_tokens = targets != self.ignore_idx
+                    first_pos = unmasked_tokens.float().argmax(dim=1)    # (B,) – returns the first index in the case of a tie i.e., first index of one
+                    seq_rep = head_output[torch.arange(bs, device=head_output.device), first_pos]  #  BLD -> BD (first unmasked token)
                     bow_logits = self.lm_head(seq_rep)  # BD -> BV
 
                     # Compute BoW targets
-                    bow_target = targets[targets != self.ignore_idx].reshape(bs, -1)
+                    bow_target = targets[unmasked_tokens].reshape(bs, -1)
                     bow_target = torch.nn.functional.one_hot(bow_target, num_classes=vocab_size)
                     bow_target = torch.sum(bow_target, dim=1).type(torch.bool).float()
 
