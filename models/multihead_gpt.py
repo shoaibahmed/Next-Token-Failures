@@ -139,8 +139,8 @@ class MultiheadGPT(Transformer):
         self.head_sizes = config.head_sizes
         self.head_weights = config.head_weights
         self.boundary_condition = config.boundary_condition
-        self.use_bow_loss = "bow" in self.head_sizes
         self.separate_bow_head = "separate_bow" in self.head_sizes
+        self.use_bow_loss = ("bow" in self.head_sizes) or self.separate_bow_head
         self.bow_loss_weight = None
         if self.use_bow_loss and not self.separate_bow_head:
             # Remove the BoW args from the head size and head weight so that it is not counted in the head limit
