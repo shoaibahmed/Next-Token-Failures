@@ -1,5 +1,9 @@
 __pycache__/
 wandb/
 logs/
+**/plots*/
 *.log
 *.out
+*.pkl
+*.txt
+*.png
