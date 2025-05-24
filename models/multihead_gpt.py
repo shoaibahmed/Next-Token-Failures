@@ -149,6 +149,7 @@ class MultiheadGPT(Transformer):
             self.bow_loss_weight = self.head_weights[bow_idx[0]]  # pick the weight assigned to the BoW head
             self.head_sizes = [self.head_sizes[i] for i in range(len(self.head_sizes)) if i != bow_idx[0]]
             self.head_weights = [self.head_weights[i] for i in range(len(self.head_weights)) if i != bow_idx[0]]
+            print(f"Removed BoW from head list / heads: {self.head_sizes} / weights: {self.head_weights} / BoW loss weight: {self.bow_loss_weight}")
         assert len(self.head_sizes) == len(self.head_weights), f"{len(self.head_sizes)} != {len(self.head_weights)}"
         assert self.head_sizes[0] == 1, "First head should have a size of 1"
 
@@ -210,8 +211,8 @@ class MultiheadGPT(Transformer):
                         bow_target = torch.sum(bow_target, dim=1).type(torch.bool).float()
 
                         # Compute the final loss
-                        bowloss = self.bceloss(bow_logits, bow_target) / bs
-                        total_loss += self.bow_loss_weight * bowloss
+                        bow_loss = self.bce_loss(bow_logits, bow_target) / bs
+                        total_loss += self.bow_loss_weight * bow_loss
             else:
                 # inference-time mini-optimization: only forward the lm_head on the very last position
                 logits = self.lm_head(head_output[:, [-1], :])  # note: using list [-1] to preserve the time dim
