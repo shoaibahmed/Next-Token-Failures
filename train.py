@@ -127,6 +127,8 @@ log_interval = 10
 # Multi-head config
 assert len(args.prediction_head_sizes.split(",")) == len(args.prediction_head_weights.split(",")), \
         f"list length mismatch: {args.prediction_head_sizes.split(',')} != {args.prediction_head_weights.split(',')}"
+if "bow" in args.prediction_head_sizes:
+    args.multihead_boundary_condition = None  # override
 
 # Optimiser
 dtype = 'float16'
