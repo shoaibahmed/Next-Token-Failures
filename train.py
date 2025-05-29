@@ -230,6 +230,8 @@ for ep in range(args.epochs):
             'Epoch: [{}/{}] Loss: {:.4f} Acc: {:.2f}%'.format(ep, args.epochs, total_loss.get(),
              total_acc.get(percentage=True))
         )
+        if wandb_log:
+            wandb.log({"train/epoch": ep, "train/loss": total_loss.get(), "train/acc": total_acc.get(percentage=True)})
 
     # evaluate the loss on train/val sets and write checkpoints
     if ep % args.eval_every == 0:
