@@ -72,10 +72,12 @@ def evaluate_forced(model, loader, ctx, results=None, mode='test'):
         with ctx:
             logits, loss, accs = model(x, y)
 
-        total_acc.update(val=accs['acc'], num=x.shape[0])
-        total_loss.update(val=loss, num=x.shape[0])
+        # Convert tensors to Python scalars for proper accumulation and logging
+        total_acc.update(val=accs['acc'].item(), num=x.shape[0])
+        total_loss.update(val=loss.item(), num=x.shape[0])
+
         for i in range(num_target_tokens):
-            tokens_corr[i].update(accs['token_acc'], x.shape[0])
+            tokens_corr[i].update(accs['token_acc'][i].item(), x.shape[0])
 
         bar.set_description('Forced Loss: {:.4f} Forced Acc: {:.2f}'.format(total_loss.get(),
                                                               total_acc.get(percentage=True)))
@@ -84,6 +86,6 @@ def evaluate_forced(model, loader, ctx, results=None, mode='test'):
         results[mode + '/forced loss'] = total_loss.get()
         results[mode + '/forced accuracy'] = total_acc.get(percentage=True)
         for i in range(num_target_tokens):
-            results[mode + '/token_' + str(i + 1)] = tokens_corr[i].get(percentage=True)
+            results[mode + '/forced token_' + str(i + 1)] = tokens_corr[i].get(percentage=True)
 
     return results
