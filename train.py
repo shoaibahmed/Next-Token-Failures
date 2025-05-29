@@ -1,3 +1,4 @@
+import os
 import argparse
 from contextlib import nullcontext
 from tqdm import tqdm
@@ -80,6 +81,9 @@ parser.add_argument(
     )
 parser.add_argument(
         "--use_wandb", action=argparse.BooleanOptionalAction, default=False, help="Whether to use wandb",
+    )
+parser.add_argument(
+        "--save_checkpoints", action=argparse.BooleanOptionalAction, default=False, help="Whether to save model checkpoints",
     )
 parser.add_argument(
         "--wandb_entity", type=str, default=None, help="Wandb username",
@@ -177,6 +181,20 @@ scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
 optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0)
 ctx = nullcontext() if device == 'cpu' else torch.amp.autocast(device_type=device, dtype=ptdtype)
 
+# Define checkpoint path
+checkpoint_dir = "./checkpoints/"
+if not os.path.exists(checkpoint_dir):
+    os.mkdir(checkpoint_dir)
+    print("Checkpoint directory created:", checkpoint_dir)
+checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}.pth")
+print("Using checkpoint path:", checkpoint_path)
+
+if args.save_checkpoints and os.path.exists(checkpoint_path):
+    print("Model checkpoint already exists:", checkpoint_path)
+    print("Terminating script...")
+    # TODO: add potential model evaluation for the multi-head setup?
+    exit()
+
 # Setup wandb logging
 if wandb_log:
     wandb.init(project='next-token-failures', entity=wandb_entity, config=args.__dict__,)
@@ -233,3 +251,8 @@ for ep in range(args.epochs):
             results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='test')
             if wandb_log:
                 wandb.log(results)
+
+if args.save_checkpoints:
+    print("Saving model checkpoint to file:", checkpoint_path)
+    torch.save(model.state_dict(), checkpoint_path)
+    print("Model checkpoint saved to file:", checkpoint_path)
