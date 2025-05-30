@@ -204,6 +204,15 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
         results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='test')
         results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='test')
         print(results)
+
+    if args.model == "multihead_gpt":
+        assert not isinstance(test_loader, dict), type(test_loader)
+        for x, y in test_loader:
+            with ctx:
+                outputs = model(x, return_all_targets=True)
+            assert isinstance(outputs, tuple) or isinstance(outputs, list), type(outputs)
+            print(len(outputs), [x.shape for x in outputs])
+            break
     print("Terminating script...")
     exit()
 

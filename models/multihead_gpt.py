@@ -164,7 +164,7 @@ class MultiheadGPT(Transformer):
         self.loss_fn = CrossEntropyLoss()
         self.bce_loss = torch.nn.BCEWithLogitsLoss(reduction='sum')
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, return_all_predictions=False):
         device = idx.device
         bsz, seq_len = idx.size()
         assert seq_len <= self.config.block_size, f"Cannot forward sequence of length {seq_len}, block size is only " \
@@ -181,6 +181,10 @@ class MultiheadGPT(Transformer):
 
         logits, accs = None, None
         total_loss = 0.
+        logits_list = []
+        if return_all_predictions:
+            assert targets is None
+
         for head_idx, head_size in enumerate(self.head_sizes):
             head_output = self.prediction_heads[head_idx](x, self.cache)
             head_output = self.final_layernorm(head_output)
@@ -225,8 +229,14 @@ class MultiheadGPT(Transformer):
             else:
                 # inference-time mini-optimization: only forward the lm_head on the very last position
                 logits = self.lm_head(head_output[:, [-1], :])  # note: using list [-1] to preserve the time dim
-                break
+                if return_all_predictions:
+                    logits_list.append(logits.detach())
+                else:
+                    break
 
+        if return_all_predictions:
+            assert len(logits_list) > 0, len(logits_list)
+            return logits_list
         return logits, total_loss, accs
 
 
