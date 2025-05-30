@@ -228,10 +228,11 @@ class MultiheadGPT(Transformer):
                         total_loss += self.bow_loss_weight * bow_loss
             else:
                 # inference-time mini-optimization: only forward the lm_head on the very last position
-                logits = self.lm_head(head_output[:, [-1], :])  # note: using list [-1] to preserve the time dim
                 if return_all_predictions:
+                    logits = self.lm_head(head_output)  # BLD -> BLV
                     logits_list.append(logits.detach())
                 else:
+                    logits = self.lm_head(head_output[:, [-1], :])  # note: using list [-1] to preserve the time dim
                     break
 
         if return_all_predictions:
