@@ -191,8 +191,20 @@ print("Using checkpoint path:", checkpoint_path)
 
 if args.save_checkpoints and os.path.exists(checkpoint_path):
     print("Model checkpoint already exists:", checkpoint_path)
+    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+    results = {}
+    if isinstance(test_loader, dict):
+        for k in test_loader.keys():
+            if k not in results:
+                results[k] = {}
+            results[k] = evaluate(model, test_loader[k], temperature=0.8, ctx=ctx, top_k=top_k, results=results[k], mode=f'test_{k}')
+            results[k] = evaluate_forced(model, test_loader[k], ctx=ctx, results=results[k], mode=f'test_{k}')
+            print(results[k])
+    else:
+        results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='test')
+        results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='test')
+        print(results)
     print("Terminating script...")
-    # TODO: add potential model evaluation for the multi-head setup?
     exit()
 
 # Setup wandb logging
