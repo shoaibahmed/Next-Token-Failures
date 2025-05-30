@@ -207,12 +207,14 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
 
     if args.model == "multihead_gpt":
         assert not isinstance(test_loader, dict), type(test_loader)
+        print("Model vocab size:", model.vocab_size)
         for x, y in test_loader:
             with ctx:
                 outputs = model(x, return_all_predictions=True)
             assert isinstance(outputs, tuple) or isinstance(outputs, list), type(outputs)
             print(f"x: {x.shape} / y: {y.shape}")
-            print(len(outputs), [x.shape for x in outputs])
+            print(len(outputs), [x.shape for x in outputs])  # BLV
+            assert all([x.shape[-1] == model.vocab_size for x in outputs]), [x.shape for x in outputs]
             break
     print("Terminating script...")
     exit()
