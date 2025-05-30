@@ -205,6 +205,7 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
         results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='test')
         print(results)
 
+    batch_idx = 0
     if args.model == "multihead_gpt":
         assert not isinstance(test_loader, dict), type(test_loader)
         print("Model vocab size:", model.vocab_size)
@@ -215,6 +216,21 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
             print(f"x: {x.shape} / y: {y.shape}")
             print(len(outputs), [x.shape for x in outputs])  # BLV
             assert all([x.shape[-1] == model.vocab_size for x in outputs]), [x.shape for x in outputs]
+            print(f"data / x: {x[batch_idx]} / y: {y[batch_idx]}")
+            print(f"data / output 0: {outputs[0][batch_idx].argmax(dim=-1)}")
+
+            if "separate_bow" in model.head_sizes:
+                head_idx = [i for i in range(len(model.head_sizes)) if model.head_sizes[i] == "separate_bow"]
+                assert len(head_idx) == 1, head_idx
+                head_idx = head_idx[0]
+                bs = len(y)
+                ignore_idx = -1
+                unmasked_tokens = y != ignore_idx
+                first_pos = unmasked_tokens.float().argmax(dim=1)    # (B,) – returns the first index in the case of a tie i.e., first index of one
+                seq_rep = outputs[head_idx][torch.arange(bs, device=outputs[1].device), first_pos]  #  BLD -> BD (first unmasked token)
+                print("Sequence rep:", seq_rep.shape)
+                print(f"data / seq: {seq_rep[batch_idx]}")
+
             break
     print("Terminating script...")
     exit()
