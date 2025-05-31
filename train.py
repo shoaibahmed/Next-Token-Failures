@@ -155,10 +155,10 @@ print(f"train dataset: {len(train_data)} / train loader: {len(train_loader)}")
 if isinstance(test_data, dict):
     test_loader = {}
     for k in test_data.keys():
-        test_loader[k] = DataLoader(test_data[k], batch_size=args.batch_size, shuffle=True)
+        test_loader[k] = DataLoader(test_data[k], batch_size=args.batch_size, shuffle=False)
         print(f"test dataset {k}: {len(test_data[k])} / test loader: {len(test_loader[k])}")
 else:
-    test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True)
+    test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=False)
     print(f"test dataset: {len(test_data)} / test loader: {len(test_loader)}")
 
 max_iters = len(train_data) * args.epochs
@@ -229,7 +229,10 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
                 first_pos = unmasked_tokens.float().argmax(dim=1)    # (B,) – returns the first index in the case of a tie i.e., first index of one
                 seq_rep = outputs[head_idx][torch.arange(bs, device=outputs[1].device), first_pos]  #  BLD -> BD (first unmasked token)
                 print("Sequence rep:", seq_rep.shape)
-                print(f"data / seq: {seq_rep[batch_idx]}")
+                predicted_prob = torch.sigmoid(seq_rep[batch_idx])
+                sorted_idx = torch.argsort(predicted_prob, descending=True, stable=True)
+                token_prob_map = {int(idx): float(predicted_prob[idx]) for idx in sorted_idx}
+                print(f"data / prob: {predicted_prob} / sorted dict: {token_prob_map}")
 
             break
     print("Terminating script...")
