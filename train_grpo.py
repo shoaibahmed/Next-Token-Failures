@@ -244,19 +244,26 @@ for ep in range(args.epochs):
                 y_pred.append(model.generate(prefix_x, num_target_tokens, temperature=0.8, top_k=top_k))
             y_pred = torch.stack(y_pred, dim=1)  # (B, G, L)
             y_pred = y_pred.reshape(args.batch_size * args.grpo_group_size, num_prefix_tokens+num_target_tokens)  # (B, G, L) -> (BG, L)
+        print("y_pred:", y_pred.shape)
 
         # Compute log-probs in train mode
         model.train()  # compute the log probs in train mode
         new_generated_tokens = y_pred[:, -num_target_tokens:]  # ignore the prompt length (B, L')
         with ctx:  # (B*grpo_group_size)LV -> (B*grpo_group_size)OV
-            logits, _, accs = model(y_pred)
+            logits, _, _ = model(y_pred[:, :-1].contiguous(), targets=y_pred[:, 1:].contiguous())  # targets required for right output shape
             log_probs = torch.nn.functional.log_softmax(logits,
                                                         dim=-1)[:, -num_target_tokens-1:-1, :]
             assert new_generated_tokens.shape[1] == log_probs.shape[1], f"{new_generated_tokens.shape} != {log_probs.shape}"
             target_log_probs = torch.gather(log_probs, dim=2, index=new_generated_tokens.unsqueeze(-1)).squeeze(-1)  # BLV -> BL
 
         # Define the correct output reward based on exact match (B*grpo_group_size) -> (B, grpo_group_size)
-        rewards = y.eq(new_generated_tokens).float().reshape(-1, args.grpo_group_size)
+        target_y = y[:, -num_target_tokens:].repeat_interleave(args.grpo_group_size, dim=0)
+        print(f"y: {y.shape} / target y: {target_y.shape} / new gen: {new_generated_tokens.shape}")
+        rewards = target_y.eq(new_generated_tokens).float()
+        print(f"rewards: {rewards.shape}")
+        # TODO: repeat y shape to match the new_generated_tokens shape
+        # y: torch.Size([16, 66]) / new gen: torch.Size([256, 10])
+        rewards = rewards.reshape(-1, args.grpo_group_size)
 
         # Compute the advantage score
         mean = rewards.mean(dim=1, keepdims=True)
@@ -266,6 +273,7 @@ for ep in range(args.epochs):
         advantage = advantage.view(-1)  # flatten it out again (B*grpo_group_size)
 
         # Compute the policy gradient -- similar to REINFORCE
+        # TODO: RuntimeError: The size of tensor a (256) must match the size of tensor b (2560) at non-singleton dimension 0
         reinforce_loss = - (target_log_probs * advantage.unsqueeze(-1)).mean()  # (BL, B1) -> scalar (negative log-likelihood)
 
         # Compute the KL-divergence from the GRPO paper: https://arxiv.org/abs/2402.03300
