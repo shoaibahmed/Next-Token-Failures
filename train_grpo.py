@@ -1,4 +1,5 @@
 import os
+import copy
 import argparse
 from contextlib import nullcontext
 from tqdm import tqdm
@@ -220,6 +221,10 @@ num_prefix_tokens = train_loader.dataset.num_prefix_tokens
 num_target_tokens = train_loader.dataset.num_target_tokens
 print(f"Prefix tokens: {num_prefix_tokens} / target tokens: {num_target_tokens}")
 
+# Clone the base model as reference policy
+ref_model = copy.deepcopy(model)
+ref_model.eval()
+
 for ep in range(args.epochs):
     train_bar = tqdm(train_loader)
     total_loss, total_acc = AverageMeter(), AverageMeter()
@@ -230,24 +235,48 @@ for ep in range(args.epochs):
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
-        # TODO: integrate GRPO training loss
         # Generate the output from the model
-        with torch.no_grad():  # output: (group size, num target tokens)
+        model.eval()  # generate in eval mode
+        with torch.no_grad(), ctx:  # output: (group size, num target tokens)
             y_pred = model.generate(x, num_target_tokens, temperature=0.8, top_k=top_k, num_return_sequences=args.grpo_group_size)
 
+        # Compute log-probs in train mode
+        model.train()  # compute the log probs in train mode
+        new_generated_tokens = y_pred[:, -num_target_tokens:]  # ignore the prompt length (L')
+        with ctx:  # BLV -> BOV
+            logits, _, accs = model(y_pred)
+            log_probs = torch.nn.functional.log_softmax(logits,
+                                                        dim=-1)[:, -num_target_tokens-1:-1, :]
+            assert new_generated_tokens.shape[1] == log_probs.shape[1], f"{new_generated_tokens.shape} != {log_probs.shape}"
+            target_log_probs = torch.gather(log_probs, dim=2, index=new_generated_tokens.unsqueeze(-1)).squeeze(-1)  # BLV -> BL
+
         # Define the correct output reward based on exact match
-        reward_list = y.eq(y_pred[:, -num_target_tokens:]).float().numpy().tolist()
+        reward_list = y.eq(new_generated_tokens).float().numpy().tolist()
 
         # Compute the advantage score
         mean = np.mean(reward_list)
         std = np.std(reward_list)
         eps = 1e-6
         advantage_list = [(x - mean) / (std + eps) for x in reward_list]
+        advantage = torch.tensor(advantage_list, dtype=target_log_probs.dtype, device=target_log_probs.device)  # (B,)
 
-        raise NotImplementedError
+        # Compute the policy gradient -- similar to REINFORCE
+        reinforce_loss = - (target_log_probs * advantage.unsqueeze(-1)).mean()  # (BL, B1) -> scalar (negative log-likelihood)
 
-        with ctx:
-            logits, loss, accs = model(x, y)
+        # Compute the KL-divergence from the GRPO paper: https://arxiv.org/abs/2402.03300
+        with torch.no_grad(), ctx:  # BLV -> BOV
+            ref_log_probs = torch.nn.functional.log_softmax(ref_model(y_pred)[0],
+                                                            dim=-1)[:, -num_target_tokens-1:-1, :]
+            assert new_generated_tokens.shape[1] == ref_log_probs.shape[1], f"{new_generated_tokens.shape} != {ref_log_probs.shape}"
+            ref_target_log_probs = torch.gather(ref_log_probs, dim=2, index=new_generated_tokens.unsqueeze(-1)).squeeze(-1)  # BLV -> BL
+
+        # KL(m || m_ref) = [ m_ref(o|q) / m(o|q) ] - log [m_ref(o|q) / m(o|q)] - 1
+        # KL(m || m_ref) = exp[ log m_ref(o|q) - log m(o|q) ] - log m_ref(o|q) + log m(o|q) - 1
+        log_ratio = ref_target_log_probs - target_log_probs
+        kl_div = (torch.exp(log_ratio) - log_ratio - 1).mean()  # BL -> scalar
+
+        # Compute the final loss
+        loss = reinforce_loss + args.grpo_kl_beta * kl_div
 
         total_loss.update(loss.item(), x.shape[0] * train_data.num_target_tokens)
         total_acc.update(accs['acc'], x.shape[0])
@@ -261,7 +290,9 @@ for ep in range(args.epochs):
              total_acc.get(percentage=True))
         )
         if wandb_log:
-            wandb.log({"train/epoch": ep, "train/loss": total_loss.get(), "train/acc": total_acc.get(percentage=True)})
+            output_dict = {"epoch": ep, "loss": total_loss.get(), "acc": total_acc.get(percentage=True),
+                           "reinforce_loss": float(reinforce_loss), "kl_div": float(kl_div)}
+            wandb.log({f"train/{k}": v for k, v in output_dict.items()})
 
     # evaluate the loss on train/val sets and write checkpoints
     if ep % args.eval_every == 0:
