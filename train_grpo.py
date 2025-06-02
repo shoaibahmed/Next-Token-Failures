@@ -237,13 +237,13 @@ for ep in range(args.epochs):
 
         # Generate the output from the model
         model.eval()  # generate in eval mode
+        prefix_x = x[:, :num_prefix_tokens]  # teacher forcing input with both the input and output tokens
         with torch.no_grad(), ctx:  # output: (group size, num target tokens)
             y_pred = []
             for _ in range(args.grpo_group_size):
-                y_pred.append(model.generate(x, num_target_tokens, temperature=0.8, top_k=top_k))
+                y_pred.append(model.generate(prefix_x, num_target_tokens, temperature=0.8, top_k=top_k))
             y_pred = torch.stack(y_pred, dim=1)  # (B, G, L)
-            y_pred = y_pred.reshape(args.batch_size * args.grpo_group_size, num_target_tokens)  # (B, G, L) -> (BG, L)
-        print(f"x: {x.shape} / y: {y.shape} / y_pred: {y_pred.shape}")
+            y_pred = y_pred.reshape(args.batch_size * args.grpo_group_size, num_prefix_tokens+num_target_tokens)  # (B, G, L) -> (BG, L)
 
         # Compute log-probs in train mode
         model.train()  # compute the log probs in train mode
