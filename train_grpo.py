@@ -238,11 +238,16 @@ for ep in range(args.epochs):
         # Generate the output from the model
         model.eval()  # generate in eval mode
         with torch.no_grad(), ctx:  # output: (group size, num target tokens)
-            y_pred = model.generate(x, num_target_tokens, temperature=0.8, top_k=top_k, num_return_sequences=args.grpo_group_size)
+            y_pred = []
+            for _ in range(args.grpo_group_size):
+                y_pred.append(model.generate(x, num_target_tokens, temperature=0.8, top_k=top_k))
+            y_pred = torch.stack(y_pred, dim=1)  # (B, G, L)
+            y_pred = y_pred.reshape(args.batch_size * args.grpo_group_size, num_target_tokens)  # (B, G, L) -> (BG, L)
+        print(f"x: {x.shape} / y: {y.shape} / y_pred: {y_pred.shape}")
 
         # Compute log-probs in train mode
         model.train()  # compute the log probs in train mode
-        new_generated_tokens = y_pred[:, -num_target_tokens:]  # ignore the prompt length (L')
+        new_generated_tokens = y_pred[:, -num_target_tokens:]  # ignore the prompt length (B, L')
         with ctx:  # (B*grpo_group_size)LV -> (B*grpo_group_size)OV
             logits, _, accs = model(y_pred)
             log_probs = torch.nn.functional.log_softmax(logits,
