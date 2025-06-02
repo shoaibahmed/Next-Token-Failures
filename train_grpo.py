@@ -238,12 +238,9 @@ for ep in range(args.epochs):
         # Generate the output from the model
         model.eval()  # generate in eval mode
         prefix_x = x[:, :num_prefix_tokens]  # teacher forcing input with both the input and output tokens
+        prefix_x = prefix_x.repeat_interleave(args.grpo_group_size, dim=0)
         with torch.no_grad(), ctx:  # output: (group size, num target tokens)
-            y_pred = []
-            for _ in range(args.grpo_group_size):
-                y_pred.append(model.generate(prefix_x, num_target_tokens, temperature=0.8, top_k=top_k))
-            y_pred = torch.stack(y_pred, dim=1)  # (B, G, L)
-            y_pred = y_pred.reshape(args.batch_size * args.grpo_group_size, num_prefix_tokens+num_target_tokens)  # (B, G, L) -> (BG, L)
+            y_pred = model.generate(prefix_x, num_target_tokens, temperature=0.8, top_k=top_k)
 
         # Compute log-probs in train mode
         model.train()  # compute the log probs in train mode
@@ -263,8 +260,8 @@ for ep in range(args.epochs):
         mean = rewards.mean(dim=1, keepdims=True)
         std = rewards.std(dim=1, keepdims=True)
         eps = 1e-6
-        advantage = (rewards - mean) / std
-        advantage = advantage.view(-1)  # flatten it out again (B*grpo_group_size)
+        advantage = (rewards - mean) / (std + eps)
+        advantage = advantage.detach().view(-1)  # flatten it out again (B*grpo_group_size)
 
         # Compute the policy gradient -- similar to REINFORCE
         reinforce_loss = - (target_log_probs * advantage.unsqueeze(-1)).mean()  # (BL, B1) -> scalar (negative log-likelihood)
