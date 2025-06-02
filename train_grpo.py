@@ -243,22 +243,22 @@ for ep in range(args.epochs):
         # Compute log-probs in train mode
         model.train()  # compute the log probs in train mode
         new_generated_tokens = y_pred[:, -num_target_tokens:]  # ignore the prompt length (L')
-        with ctx:  # BLV -> BOV
+        with ctx:  # (B*grpo_group_size)LV -> (B*grpo_group_size)OV
             logits, _, accs = model(y_pred)
             log_probs = torch.nn.functional.log_softmax(logits,
                                                         dim=-1)[:, -num_target_tokens-1:-1, :]
             assert new_generated_tokens.shape[1] == log_probs.shape[1], f"{new_generated_tokens.shape} != {log_probs.shape}"
             target_log_probs = torch.gather(log_probs, dim=2, index=new_generated_tokens.unsqueeze(-1)).squeeze(-1)  # BLV -> BL
 
-        # Define the correct output reward based on exact match
-        reward_list = y.eq(new_generated_tokens).float().numpy().tolist()
+        # Define the correct output reward based on exact match (B*grpo_group_size) -> (B, grpo_group_size)
+        rewards = y.eq(new_generated_tokens).float().reshape(-1, args.grpo_group_size)
 
         # Compute the advantage score
-        mean = np.mean(reward_list)
-        std = np.std(reward_list)
+        mean = rewards.mean(dim=1, keepdims=True)
+        std = rewards.std(dim=1, keepdims=True)
         eps = 1e-6
-        advantage_list = [(x - mean) / (std + eps) for x in reward_list]
-        advantage = torch.tensor(advantage_list, dtype=target_log_probs.dtype, device=target_log_probs.device)  # (B,)
+        advantage = (rewards - mean) / std
+        advantage = advantage.view(-1)  # flatten it out again (B*grpo_group_size)
 
         # Compute the policy gradient -- similar to REINFORCE
         reinforce_loss = - (target_log_probs * advantage.unsqueeze(-1)).mean()  # (BL, B1) -> scalar (negative log-likelihood)
