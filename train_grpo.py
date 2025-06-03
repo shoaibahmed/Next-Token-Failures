@@ -170,7 +170,7 @@ if args.use_grpo_val_set:
     all_idx = [int(x) for x in all_idx]
     val_idx = all_idx[:val_len]
     test_idx = all_idx[val_len:]
-    print(f"Selected idx / full test: {len(all_idx} / val: {len(val_idx)} / test: {len(test_idx)}")
+    print(f"Selected idx / full test: {len(all_idx)} / val: {len(val_idx)} / test: {len(test_idx)}")
 
     # Define the dataset and the dataloader
     val_data = torch.utils.data.Subset(test_data, val_idx)
@@ -220,7 +220,7 @@ model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
 
 # Define the new checkpoint file for GRPO
 run_name = f"{run_name}_grpo_group_size_{args.grpo_group_size}_kl_beta_{args.grpo_kl_beta}"
-run_ name += "_val" if if args.use_grpo_val_set else ""
+run_name += "_val" if args.use_grpo_val_set else ""
 grpo_checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}.pth")
 
 # Setup wandb logging
@@ -254,6 +254,7 @@ if args.grpo_kl_beta > 0:
     # Clone the base model as reference policy
     ref_model = copy.deepcopy(model)
     ref_model.eval()
+    print("Model cloned as reference policy for computing KL-divergence...")
 
 for ep in range(args.epochs):
     train_bar = tqdm(val_loader if args.use_grpo_val_set else train_loader)
