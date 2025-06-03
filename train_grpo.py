@@ -6,6 +6,7 @@ from tqdm import tqdm
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
+from typing import List
 import wandb
 
 from tokenizing import get_tokenizer
@@ -13,6 +14,20 @@ from utils.training_utils import get_lr, get_run_name, AverageMeter
 from data import get_dataset
 from evaluate import evaluate, evaluate_forced
 from models import get_model
+
+
+class DatasetSubset(torch.utils.data.Subset):
+    def __init__(self, dataset: torch.utils.data.Dataset, indices: List[int]):
+        super().__init__(dataset, indices)
+
+        self.num_prefix_tokens = self.dataset.num_prefix_tokens
+        self.num_target_tokens = self.dataset.num_target_tokens
+
+    def train(self):
+        self.dataset.train()
+
+    def eval(self):
+        self.dataset.eval()
 
 
 # Parse arguments
@@ -160,6 +175,10 @@ run_name = get_run_name(args)
 tokenizer = get_tokenizer(args)
 train_data, test_data = get_dataset(args, tokenizer, device)
 
+num_prefix_tokens = train_data.num_prefix_tokens
+num_target_tokens = train_data.num_target_tokens
+print(f"Prefix tokens: {num_prefix_tokens} / target tokens: {num_target_tokens}")
+
 val_data = None
 if args.use_grpo_val_set:
     # Define a validation set (for GRPO)
@@ -173,8 +192,8 @@ if args.use_grpo_val_set:
     print(f"Selected idx / full test: {len(all_idx)} / val: {len(val_idx)} / test: {len(test_idx)}")
 
     # Define the dataset and the dataloader
-    val_data = torch.utils.data.Subset(test_data, val_idx)
-    test_data = torch.utils.data.Subset(test_data, test_idx)
+    val_data = DatasetSubset(test_data, val_idx)
+    test_data = DatasetSubset(test_data, test_idx)
 
 train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
 print(f"train dataset: {len(train_data)} / train loader: {len(train_loader)}")
@@ -244,10 +263,6 @@ if wandb_log:
 
 results = {}
 num_iters = 0
-
-num_prefix_tokens = train_loader.dataset.num_prefix_tokens
-num_target_tokens = train_loader.dataset.num_target_tokens
-print(f"Prefix tokens: {num_prefix_tokens} / target tokens: {num_target_tokens}")
 
 ref_model = None
 if args.grpo_kl_beta > 0:
