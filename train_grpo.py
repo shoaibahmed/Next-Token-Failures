@@ -240,15 +240,17 @@ for ep in range(args.epochs):
         # Generate the output from the model
         model.eval()  # generate in eval mode
         prefix_x = x[:, :num_prefix_tokens]  # teacher forcing input with both the input and output tokens
-        prefix_x = prefix_x.repeat_interleave(args.grpo_group_size, dim=0)
-        with torch.no_grad(), ctx:  # output: (group size, num target tokens)
+        prefix_x = prefix_x.repeat_interleave(args.grpo_group_size, dim=0)  # repeat the input prompt for parallel inference
+        with torch.no_grad(), ctx:  # output: (batch size * group size, num prefix tokens + num target tokens)
             y_pred = model.generate(prefix_x, num_target_tokens, temperature=0.8, top_k=top_k)
 
         # Compute log-probs in train mode
         model.train()  # compute the log probs in train mode
         new_generated_tokens = y_pred[:, -num_target_tokens:]  # ignore the prompt length (B, L')
         with ctx:  # (B*grpo_group_size)LV -> (B*grpo_group_size)OV
-            logits, _, accs = model(y_pred[:, :-1].contiguous(), targets=y_pred[:, 1:].contiguous())  # targets required for right output shape
+            targets_for_acc = -torch.ones_like(y_pred)
+            targets_for_acc[:, num_prefix_tokens:] = y_pred[:, num_prefix_tokens:]
+            logits, _, accs = model(y_pred[:, :-1].contiguous(), targets=targets_for_acc[:, 1:].contiguous())
             log_probs = torch.nn.functional.log_softmax(logits, dim=-1)[:, -num_target_tokens:, :]  # -1 adjusted in model inputs
             assert new_generated_tokens.shape[1] == log_probs.shape[1], f"{new_generated_tokens.shape} != {log_probs.shape}"
             target_log_probs = torch.gather(log_probs, dim=2, index=new_generated_tokens.unsqueeze(-1)).squeeze(-1)  # BLV -> BL
