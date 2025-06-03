@@ -123,10 +123,17 @@ parser.add_argument(
 parser.add_argument(
         "--use-grpo-val-set", action=argparse.BooleanOptionalAction, default=False, help="Use validation set for GRPO training",
     )
+parser.add_argument(
+        "--grpo-from-scratch", action=argparse.BooleanOptionalAction, default=False, help="Perform GRPO training from scratch -- needs initial SFT for a few epochs",
+    )
+parser.add_argument(
+        "--grpo-initial-sft-ep", type=int, default=1, help="Number of initial epochs for SFT when using GRPO from scratch",
+    )
 
 args = parser.parse_args()
 
 assert 0 <= args.grpo_kl_beta, args.grpo_kl_beta
+assert not args.grpo_from_scratch or (args.grpo_kl_beta == 0. and not args.use_grpo_val_set), "GRPO from scratch should have no KL-regularization and val set training"
 
 # System stuff
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -232,14 +239,16 @@ checkpoint_dir = "./checkpoints/"
 if not os.path.exists(checkpoint_dir):
     os.mkdir(checkpoint_dir)
     print("Checkpoint directory created:", checkpoint_dir)
-checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}.pth")
-print("Using checkpoint path:", checkpoint_path)
-assert os.path.exists(checkpoint_path), "GRPO training assumes the pretrained model already exists"
-model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
 
 # Define the new checkpoint file for GRPO
-run_name = f"{run_name}_grpo_group_size_{args.grpo_group_size}_kl_beta_{args.grpo_kl_beta}"
-run_name += "_val" if args.use_grpo_val_set else ""
+checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}.pth")
+run_name = f"{run_name}_grpo_group_size_{args.grpo_group_size}"
+if args.grpo_from_scratch:
+    assert args.grpo_kl_beta == 0., args.grpo_kl_beta
+    assert not args.use_grpo_val_set
+    run_name += f"_scratch_sft_ep_{args.grpo_initial_sft_ep}"
+else:
+    run_name += f"_kl_beta_{args.grpo_kl_beta}" + ("_val" if args.use_grpo_val_set else "")
 grpo_checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}.pth")
 
 # Setup wandb logging
@@ -247,19 +256,24 @@ if wandb_log:
     wandb.init(project='next-token-failures-grpo', entity=wandb_entity, config=args.__dict__,)
     wandb.run.name = run_name
 
-# Evaluate the base model
-print("Evaluating base model before GRPO training...")
-results = {}
-results = evaluate(model, train_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_train')
-results = evaluate_forced(model, train_loader, ctx=ctx, results=results, mode='base_train')
-if val_loader is not None:
-    results = evaluate(model, val_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_val')
-    results = evaluate_forced(model, val_loader, ctx=ctx, results=results, mode='base_val')
-results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_test')
-results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='base_test')
-print(results)
-if wandb_log:
-    wandb.log(results)
+if not args.grpo_from_scratch:
+    print("Using pretrained checkpoint path:", checkpoint_path)
+    assert os.path.exists(checkpoint_path), "GRPO training assumes the pretrained model already exists"
+    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+
+    # Evaluate the base model
+    print("Evaluating base model before GRPO training...")
+    results = {}
+    results = evaluate(model, train_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_train')
+    results = evaluate_forced(model, train_loader, ctx=ctx, results=results, mode='base_train')
+    if val_loader is not None:
+        results = evaluate(model, val_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_val')
+        results = evaluate_forced(model, val_loader, ctx=ctx, results=results, mode='base_val')
+    results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_test')
+    results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='base_test')
+    print(results)
+    if wandb_log:
+        wandb.log(results)
 
 results = {}
 num_iters = 0
@@ -279,6 +293,26 @@ for ep in range(args.epochs):
         lr = get_lr(num_iters, args.lr, warmup_iters, lr_decay_iters, min_lr) if decay_lr else args.lr
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
+
+        if args.grpo_from_scratch and ep < args.grpo_initial_sft_ep:
+            model.train()
+            with ctx:
+                logits, loss, accs = model(x, y)
+
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
+
+            train_bar.set_description(
+                'SFT Epoch: [{}/{}] Loss: {:.4f} Acc: {:.2f}%'.format(ep, args.epochs, float(loss), float(accs['acc'])*100.)
+            )
+            if wandb_log:
+                output_dict = {"epoch": ep, "loss": float(loss), "acc": float(accs['acc'])*100.}
+                wandb.log({f"train/sft/{k}": v for k, v in output_dict.items()})
+
+            num_iters += 1
+            continue
 
         # Generate the output from the model
         model.eval()  # generate in eval mode
