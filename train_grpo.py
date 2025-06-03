@@ -285,7 +285,7 @@ for ep in range(args.epochs):
         prefix_x = x[:, :num_prefix_tokens]  # teacher forcing input with both the input and output tokens
         prefix_x = prefix_x.repeat_interleave(args.grpo_group_size, dim=0)  # repeat the input prompt for parallel inference
         with torch.no_grad(), ctx:  # output: (batch size * group size, num prefix tokens + num target tokens)
-            y_pred = model.generate(prefix_x, num_target_tokens, temperature=2.0, top_k=None)  # high temp -- diverse samples
+            y_pred = model.generate(prefix_x, num_target_tokens, temperature=1.0, top_k=None)  # high temp -- diverse samples
 
         # Compute log-probs in train mode
         model.train()  # compute the log probs in train mode
@@ -302,7 +302,8 @@ for ep in range(args.epochs):
             target_log_probs = torch.gather(log_probs, dim=2, index=new_generated_tokens.unsqueeze(-1)).squeeze(-1)  # BLV -> BL
 
         # Define the correct output reward based on exact match (B*grpo_group_size) -> (B, grpo_group_size)
-        rewards = target_y.eq(new_generated_tokens).sum(dim=-1).float()  # (B * grpo_group_size, num_tokens) -> ((B * grpo_group_size,)
+        # Can either be a binary reward using .all(dim=-1) or numeric reward based on the number of correct tokens i.e., .sum(dim=-1)
+        rewards = target_y.eq(new_generated_tokens).all(dim=-1).float()  # (B * grpo_group_size, num_tokens) -> ((B * grpo_group_size,)
         rewards = rewards.reshape(-1, args.grpo_group_size)
 
         # Compute the advantage score
@@ -326,7 +327,7 @@ for ep in range(args.epochs):
 
             # KL(m || m_ref) = [ m_ref(o|q) / m(o|q) ] - log [m_ref(o|q) / m(o|q)] - 1
             # KL(m || m_ref) = exp[ log m_ref(o|q) - log m(o|q) ] - log m_ref(o|q) + log m(o|q) - 1
-            log_ratio = ref_target_log_probs - target_log_probs
+            log_ratio = ref_target_log_probs.detach() - target_log_probs
             kl_div = (torch.exp(log_ratio) - log_ratio - 1).mean()  # BL -> scalar
 
             # Compute the final loss
