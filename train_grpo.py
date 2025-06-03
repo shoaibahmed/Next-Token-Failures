@@ -105,6 +105,9 @@ parser.add_argument(
 parser.add_argument(
         "--grpo-kl-beta", type=float, default=0.0, help="Beta value to be the used with the KL-divergence term in order to minimize deviation from the reference policy",
     )
+parser.add_argument(
+        "--use-grpo-val-set", action=argparse.BooleanOptionalAction, default=False, help="Use validation set for GRPO training",
+    )
 
 args = parser.parse_args()
 
@@ -157,17 +160,34 @@ run_name = get_run_name(args)
 tokenizer = get_tokenizer(args)
 train_data, test_data = get_dataset(args, tokenizer, device)
 
+val_data = None
+if args.use_grpo_val_set:
+    # Define a validation set (for GRPO)
+    rng = np.random.default_rng(42)
+    val_frac = 0.1
+    val_len = int(val_frac * len(test_data))
+    all_idx = rng.permutation(list(range((len(test_data)))))
+    all_idx = [int(x) for x in all_idx]
+    val_idx = all_idx[:val_len]
+    test_idx = all_idx[val_len:]
+    print(f"Selected idx / full test: {len(all_idx} / val: {len(val_idx)} / test: {len(test_idx)}")
+
+    # Define the dataset and the dataloader
+    val_data = torch.utils.data.Subset(test_data, val_idx)
+    test_data = torch.utils.data.Subset(test_data, test_idx)
+
 train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
 print(f"train dataset: {len(train_data)} / train loader: {len(train_loader)}")
-if isinstance(test_data, dict):
-    test_loader = {}
-    for k in test_data.keys():
-        test_loader[k] = DataLoader(test_data[k], batch_size=args.batch_size, shuffle=False)
-        print(f"test dataset {k}: {len(test_data[k])} / test loader: {len(test_loader[k])}")
-else:
-    test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=False)
-    print(f"test dataset: {len(test_data)} / test loader: {len(test_loader)}")
 
+val_loader = None
+if val_data is not None:
+    val_loader = DataLoader(val_data, batch_size=args.batch_size, shuffle=True)
+    print(f"val dataset: {len(val_data)} / val loader: {len(val_loader)}")
+
+test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=False)
+print(f"test dataset: {len(test_data)} / test loader: {len(test_loader)}")
+
+# Setup the training args
 max_iters = len(train_data) * args.epochs
 lr_decay_iters = max_iters
 
@@ -200,6 +220,7 @@ model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
 
 # Define the new checkpoint file for GRPO
 run_name = f"{run_name}_grpo_group_size_{args.grpo_group_size}_kl_beta_{args.grpo_kl_beta}"
+run_ name += "_val" if if args.use_grpo_val_set else ""
 grpo_checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}.pth")
 
 # Setup wandb logging
@@ -210,6 +231,11 @@ if wandb_log:
 # Evaluate the base model
 print("Evaluating base model before GRPO training...")
 results = {}
+results = evaluate(model, train_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_train')
+results = evaluate_forced(model, train_loader, ctx=ctx, results=results, mode='base_train')
+if val_loader is not None:
+    results = evaluate(model, val_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_val')
+    results = evaluate_forced(model, val_loader, ctx=ctx, results=results, mode='base_val')
 results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_test')
 results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='base_test')
 print(results)
@@ -230,7 +256,7 @@ if args.grpo_kl_beta > 0:
     ref_model.eval()
 
 for ep in range(args.epochs):
-    train_bar = tqdm(train_loader)
+    train_bar = tqdm(val_loader if args.use_grpo_val_set else train_loader)
     total_loss, total_acc = AverageMeter(), AverageMeter()
 
     for x, y in train_bar:
