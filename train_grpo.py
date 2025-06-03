@@ -213,6 +213,8 @@ results = {}
 results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_test')
 results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='base_test')
 print(results)
+if wandb_log:
+    wandb.log(results)
 
 results = {}
 num_iters = 0
