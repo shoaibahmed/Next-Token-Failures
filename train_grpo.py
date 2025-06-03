@@ -285,7 +285,7 @@ for ep in range(args.epochs):
         prefix_x = x[:, :num_prefix_tokens]  # teacher forcing input with both the input and output tokens
         prefix_x = prefix_x.repeat_interleave(args.grpo_group_size, dim=0)  # repeat the input prompt for parallel inference
         with torch.no_grad(), ctx:  # output: (batch size * group size, num prefix tokens + num target tokens)
-            y_pred = model.generate(prefix_x, num_target_tokens, temperature=0.8, top_k=top_k)
+            y_pred = model.generate(prefix_x, num_target_tokens, temperature=0.8, top_k=None)
 
         # Compute log-probs in train mode
         model.train()  # compute the log probs in train mode
