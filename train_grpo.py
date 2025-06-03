@@ -291,16 +291,18 @@ for ep in range(args.epochs):
         # Compute log-probs in train mode
         model.train()  # compute the log probs in train mode
         new_generated_tokens = y_pred[:, -num_target_tokens:]  # ignore the prompt length (B, L')
+        target_y = y[:, -num_target_tokens:].repeat_interleave(args.grpo_group_size, dim=0)
         with ctx:  # (B*grpo_group_size)LV -> (B*grpo_group_size)OV
-            targets_for_acc = -torch.ones_like(y_pred)
-            targets_for_acc[:, num_prefix_tokens:] = y_pred[:, num_prefix_tokens:]
-            logits, _, accs = model(y_pred[:, :-1].contiguous(), targets=targets_for_acc[:, 1:].contiguous())
+            current_input = y_pred[:, :-1].contiguous()
+            targets_for_acc = -torch.ones_like(current_input)
+            # targets_for_acc[:, -num_target_tokens:] = y_pred[:, -num_target_tokens:]
+            targets_for_acc[:, -num_target_tokens:] = target_y
+            logits, _, accs = model(current_input, targets=targets_for_acc.contiguous())
             log_probs = torch.nn.functional.log_softmax(logits, dim=-1)[:, -num_target_tokens:, :]  # -1 adjusted in model inputs
             assert new_generated_tokens.shape[1] == log_probs.shape[1], f"{new_generated_tokens.shape} != {log_probs.shape}"
             target_log_probs = torch.gather(log_probs, dim=2, index=new_generated_tokens.unsqueeze(-1)).squeeze(-1)  # BLV -> BL
 
         # Define the correct output reward based on exact match (B*grpo_group_size) -> (B, grpo_group_size)
-        target_y = y[:, -num_target_tokens:].repeat_interleave(args.grpo_group_size, dim=0)
         rewards = target_y.eq(new_generated_tokens).sum(dim=-1).float()  # (B * grpo_group_size, num_tokens) -> ((B * grpo_group_size,)
         rewards = rewards.reshape(-1, args.grpo_group_size)
 
@@ -356,6 +358,9 @@ for ep in range(args.epochs):
             results = evaluate(model, train_loader, temperature=0.8, top_k=top_k, results=results, mode='train')
             results = evaluate_forced(model, train_loader, results=results, mode='train')
 
+        if val_loader is not None:
+            results = evaluate(model, val_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='val')
+            results = evaluate_forced(model, val_loader, ctx=ctx, results=results, mode='val')
         results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='test')
         results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='test')
         if wandb_log:
