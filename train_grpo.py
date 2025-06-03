@@ -303,7 +303,7 @@ for ep in range(args.epochs):
 
         # Define the correct output reward based on exact match (B*grpo_group_size) -> (B, grpo_group_size)
         # Can either be a binary reward using .all(dim=-1) or numeric reward based on the number of correct tokens i.e., .sum(dim=-1)
-        rewards = target_y.eq(new_generated_tokens).all(dim=-1).float()  # (B * grpo_group_size, num_tokens) -> ((B * grpo_group_size,)
+        rewards = target_y.eq(new_generated_tokens).sum(dim=-1).float()  # (B * grpo_group_size, num_tokens) -> ((B * grpo_group_size,)
         rewards = rewards.reshape(-1, args.grpo_group_size)
 
         # Compute the advantage score
