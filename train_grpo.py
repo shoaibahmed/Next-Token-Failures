@@ -202,17 +202,17 @@ model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
 run_name = f"{run_name}_grpo_group_size_{args.grpo_group_size}_kl_beta_{args.grpo_kl_beta}"
 grpo_checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}.pth")
 
+# Setup wandb logging
+if wandb_log:
+    wandb.init(project='next-token-failures-grpo', entity=wandb_entity, config=args.__dict__,)
+    wandb.run.name = run_name
+
 # Evaluate the base model
 print("Evaluating base model before GRPO training...")
 results = {}
 results = evaluate(model, test_loader, temperature=0.8, ctx=ctx, top_k=top_k, results=results, mode='base_test')
 results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='base_test')
 print(results)
-
-# Setup wandb logging
-if wandb_log:
-    wandb.init(project='next-token-failures-grpo', entity=wandb_entity, config=args.__dict__,)
-    wandb.run.name = run_name
 
 results = {}
 num_iters = 0
@@ -247,7 +247,7 @@ for ep in range(args.epochs):
         new_generated_tokens = y_pred[:, -num_target_tokens:]  # ignore the prompt length (B, L')
         with ctx:  # (B*grpo_group_size)LV -> (B*grpo_group_size)OV
             logits, _, accs = model(y_pred[:, :-1].contiguous(), targets=y_pred[:, 1:].contiguous())  # targets required for right output shape
-            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)[:, -num_target_tokens-1:-1, :]
+            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)[:, -num_target_tokens:, :]  # -1 adjusted in model inputs
             assert new_generated_tokens.shape[1] == log_probs.shape[1], f"{new_generated_tokens.shape} != {log_probs.shape}"
             target_log_probs = torch.gather(log_probs, dim=2, index=new_generated_tokens.unsqueeze(-1)).squeeze(-1)  # BLV -> BL
 
@@ -269,7 +269,7 @@ for ep in range(args.epochs):
         # Compute the KL-divergence from the GRPO paper: https://arxiv.org/abs/2402.03300
         with torch.no_grad(), ctx:  # BLV -> BOV
             ref_logits, _, _ = ref_model(y_pred[:, :-1].contiguous(), targets=y_pred[:, 1:].contiguous())  # targets required for right output shape
-            ref_log_probs = torch.nn.functional.log_softmax(ref_logits, dim=-1)[:, -num_target_tokens-1:-1, :]
+            ref_log_probs = torch.nn.functional.log_softmax(ref_logits, dim=-1)[:, -num_target_tokens:, :]  # -1 adjusted in model inputs
             assert new_generated_tokens.shape[1] == ref_log_probs.shape[1], f"{new_generated_tokens.shape} != {ref_log_probs.shape}"
             ref_target_log_probs = torch.gather(ref_log_probs, dim=2, index=new_generated_tokens.unsqueeze(-1)).squeeze(-1)  # BLV -> BL
 
