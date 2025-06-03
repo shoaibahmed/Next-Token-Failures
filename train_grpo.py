@@ -273,7 +273,6 @@ if args.grpo_kl_beta > 0:
 
 for ep in range(args.epochs):
     train_bar = tqdm(val_loader if args.use_grpo_val_set else train_loader)
-    total_loss, total_acc = AverageMeter(), AverageMeter()
 
     for x, y in train_bar:
         # determine and set the learning rate for this iteration
@@ -335,20 +334,19 @@ for ep in range(args.epochs):
         else:
             loss = reinforce_loss
 
-        total_loss.update(loss.item(), x.shape[0] * train_data.num_target_tokens)
-        total_acc.update(accs['acc'], x.shape[0])
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad(set_to_none=True)
         num_iters += 1
         train_bar.set_description(
-            'Epoch: [{}/{}] Loss: {:.4f} Acc: {:.2f}%'.format(ep, args.epochs, total_loss.get(),
-             total_acc.get(percentage=True))
+            'Epoch: [{}/{}] Loss: {:.4f} Acc: {:.2f}%'.format(ep, args.epochs, float(loss), float(accs['acc'])*100.)
         )
         if wandb_log:
-            output_dict = {"epoch": ep, "loss": float(loss), "acc": float(accs['acc']), "reinforce_loss": float(reinforce_loss),
-                           "kl_div": float(kl_div) if kl_div is not None else kl_div}
+            reward_hist = wandb.Histogram(rewards.view(-1).cpu().numpy())
+            adv_hist = wandb.Histogram(advantage.view(-1).cpu().numpy())
+            output_dict = {"epoch": ep, "loss": float(loss), "acc": float(accs['acc'])*100., "reinforce_loss": float(reinforce_loss),
+                           "kl_div": float(kl_div) if kl_div is not None else kl_div, "rewards": reward_hist, "advantage": adv_hist}
             wandb.log({f"train/{k}": v for k, v in output_dict.items()})
 
     # evaluate the loss on train/val sets and write checkpoints
