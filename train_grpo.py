@@ -297,7 +297,7 @@ for ep in range(args.epochs):
              total_acc.get(percentage=True))
         )
         if wandb_log:
-            output_dict = {"epoch": ep, "loss": total_loss.get(), "acc": total_acc.get(percentage=True),
+            output_dict = {"epoch": ep, "loss": float(loss), "acc": float(accs['acc']),
                            "reinforce_loss": float(reinforce_loss), "kl_div": float(kl_div)}
             wandb.log({f"train/{k}": v for k, v in output_dict.items()})
 
