@@ -61,7 +61,7 @@ parser.add_argument(
         "--lr", type=float, default=5e-4, help="Learning rate",
     )
 parser.add_argument(
-        "--weight_decay", type=float, default=1e-2, help="Strength of weight decay",
+        "--weight_decay", type=float, default=0.0, help="Strength of weight decay",
     )
 parser.add_argument(
         "--epochs", type=int, default=100, help="Number of epochs",
@@ -76,7 +76,7 @@ parser.add_argument(
         "--eval_train", action=argparse.BooleanOptionalAction, default=False, help="Eval for training set",
     )
 parser.add_argument(
-        "--eval_every", type=int, default=5000, help="Interval (in steps) to evaluate the model on test",
+        "--eval_every", type=int, default=1, help="Interval (in steps) to evaluate the model on test",
     )
 parser.add_argument(
         "--use_wandb", action=argparse.BooleanOptionalAction, default=False, help="Whether to use wandb",
@@ -103,7 +103,7 @@ parser.add_argument(
         "--grpo-group-size", type=int, default=16, help="GRPO group size",
     )
 parser.add_argument(
-        "--grpo-kl-beta", type=float, default=0.1, help="Beta value to be the used with the KL-divergence term in order to minimize deviation from the reference policy",
+        "--grpo-kl-beta", type=float, default=0.0, help="Beta value to be the used with the KL-divergence term in order to minimize deviation from the reference policy",
     )
 
 args = parser.parse_args()
@@ -185,7 +185,7 @@ model.train()
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
-optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0)
+optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 ctx = nullcontext() if device == 'cpu' else torch.amp.autocast(device_type=device, dtype=ptdtype)
 
 # Define checkpoint path
