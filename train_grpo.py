@@ -133,7 +133,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 assert 0 <= args.grpo_kl_beta, args.grpo_kl_beta
-assert not args.grpo_from_scratch or (args.grpo_kl_beta == 0. and not args.use_grpo_val_set), "GRPO from scratch should have no KL-regularization and val set training"
+assert not args.grpo_from_scratch or not args.use_grpo_val_set, "GRPO from scratch should have no val set training"
 
 # System stuff
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -247,6 +247,7 @@ if args.grpo_from_scratch:
     assert args.grpo_kl_beta == 0., args.grpo_kl_beta
     assert not args.use_grpo_val_set
     run_name += f"_scratch_sft_ep_{args.grpo_initial_sft_ep}"
+    run_name += f"_kl_beta_{args.grpo_kl_beta}"
 else:
     run_name += f"_kl_beta_{args.grpo_kl_beta}" + ("_val" if args.use_grpo_val_set else "")
 grpo_checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}.pth")
@@ -279,11 +280,11 @@ results = {}
 num_iters = 0
 
 ref_model = None
-if args.grpo_kl_beta > 0:
+if args.grpo_kl_beta > 0 and not args.grpo_from_scratch:
     # Clone the base model as reference policy
     ref_model = copy.deepcopy(model)
     ref_model.eval()
-    print("Model cloned as reference policy for computing KL-divergence...")
+    print("!! Model cloned as reference policy for computing KL-divergence...")
 
 for ep in range(args.epochs):
     train_bar = tqdm(val_loader if args.use_grpo_val_set else train_loader)
@@ -398,6 +399,12 @@ for ep in range(args.epochs):
         results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='test')
         if wandb_log:
             wandb.log(results)
+
+    if args.grpo_kl_beta > 0 and args.grpo_from_scratch and ep == (args.grpo_initial_sft_ep - 1):
+        # Clone the SFT model as reference policy
+        ref_model = copy.deepcopy(model)
+        ref_model.eval()
+        print("!! SFT model cloned as reference policy for computing KL-divergence...")
 
 if args.save_checkpoints:
     print("Saving model checkpoint to file:", grpo_checkpoint_path)
