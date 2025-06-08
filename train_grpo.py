@@ -244,7 +244,6 @@ if not os.path.exists(checkpoint_dir):
 checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}.pth")
 run_name = f"{run_name}_grpo_group_size_{args.grpo_group_size}"
 if args.grpo_from_scratch:
-    assert args.grpo_kl_beta == 0., args.grpo_kl_beta
     assert not args.use_grpo_val_set
     run_name += f"_scratch_sft_ep_{args.grpo_initial_sft_ep}"
     run_name += f"_kl_beta_{args.grpo_kl_beta}"
