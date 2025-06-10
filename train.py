@@ -253,13 +253,29 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
 
                     if verbose and b == 0:
                         sorted_dict = {int(k): round(float(v), 2) for k, v in zip(sorted_idx, sorted_vals)}
-                        print("raw logits:", seq_rep)
-                        print("sorted dict:", sorted_dict)
+                        print(f"Head size {head_size} raw logits:", seq_rep)
+                        print(f"Head size {head_size} sorted dict:", sorted_dict)
                         print("-"*10)
 
         # ---------------------------------------------------------------------
         # Summarise results
         # ---------------------------------------------------------------------
+        import json, datetime, os
+
+        # Save raw histogram data for later plotting
+        rank_dump = {
+            "rank_histogram": {int(k): {int(r): int(c) for r, c in v.items()} for k, v in rank_histogram.items()},
+            "total_counts": {int(k): int(v) for k, v in total_counts.items()},
+            "run_name": run_name,
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+        dump_dir = "rank_eval_outputs"
+        os.makedirs(dump_dir, exist_ok=True)
+        dump_file = os.path.join(dump_dir, f"{run_name}_rank_hist.json")
+        with open(dump_file, "w") as f:
+            json.dump(rank_dump, f)
+        print(f"Saved rank-histogram data to {dump_file}")
+
         for head_size, hist in rank_histogram.items():
             if total_counts[head_size] == 0:
                 continue
