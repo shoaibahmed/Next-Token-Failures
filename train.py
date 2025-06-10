@@ -216,6 +216,7 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
         total_counts = {hs: 0 for hs in model.head_sizes}
 
         ignore_idx = -1
+        verbose = True
         for x, y in tqdm(test_loader, desc="Ranking eval"):
             # Get logits for all heads (full sequence length – teacher forcing)
             with ctx:
@@ -229,6 +230,9 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
 
             for b in range(bs):
                 tgt_tokens = y[b, first_pos[b]:]  # 1-D tensor of target tokens for sample b
+                if verbose and b == 0:
+                    print("~"*10)
+                    print("Target tokens:", tgt_tokens)
 
                 for head_idx, head_size in enumerate(model.head_sizes):
                     # Predicted probability distribution at the first target position
@@ -246,6 +250,12 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
                         rank = int(rank_map[token_int].item())
                         rank_histogram[head_size][rank] += 1
                         total_counts[head_size] += 1
+
+                    if verbose and b == 0:
+                        sorted_dict = {int(k): round(float(v), 2) for k, v in zip(sorted_idx, sorted_vals)}
+                        print("raw logits:", seq_rep)
+                        print("sorted dict:", sorted_dict)
+                        print("-"*10)
 
         # ---------------------------------------------------------------------
         # Summarise results
