@@ -225,6 +225,10 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
             unmasked_tokens = y != ignore_idx
             first_pos = unmasked_tokens.float().argmax(dim=1)    # (B,) – returns the first index in the case of a tie i.e., first index of one
 
+            # Crop out just the target sequence
+            target_seq = torch.stack([y[b, first_pos[b]:] for b in range(bs)], dim=0)[batch_idx]  # B(L-1) -> BL'
+            print("target seq:", target_seq)
+
             for head_idx, head_size in enumerate(model.head_sizes):
                 seq_rep = outputs[head_idx][torch.arange(bs, device=outputs[0].device), first_pos]  #  BLD -> BD (first unmasked token)
                 print("Sequence rep:", seq_rep.shape)
