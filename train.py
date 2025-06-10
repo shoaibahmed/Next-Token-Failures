@@ -2,6 +2,8 @@ import os
 import argparse
 from contextlib import nullcontext
 from tqdm import tqdm
+from collections import defaultdict
+
 import torch
 from torch.utils.data import DataLoader
 import wandb
@@ -205,41 +207,66 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
         results = evaluate_forced(model, test_loader, ctx=ctx, results=results, mode='test')
         print(results)
 
-    batch_idx = 0
     if args.model == "multihead_gpt":
         assert not isinstance(test_loader, dict), type(test_loader)
         print("Model vocab size:", model.vocab_size)
-        for x, y in test_loader:
+
+        # Containers to accumulate ranks across the entire test set
+        rank_histogram = {hs: defaultdict(int) for hs in model.head_sizes}
+        total_counts = {hs: 0 for hs in model.head_sizes}
+
+        ignore_idx = -1
+        for x, y in tqdm(test_loader, desc="Ranking eval"):
+            # Get logits for all heads (full sequence length – teacher forcing)
             with ctx:
                 outputs = model(x, return_all_predictions=True)
-            assert isinstance(outputs, tuple) or isinstance(outputs, list), type(outputs)
-            print(f"x: {x.shape} / y: {y.shape}")
-            print(len(outputs), [x.shape for x in outputs])  # BLV
-            assert all([x.shape[-1] == model.vocab_size for x in outputs]), [x.shape for x in outputs]
-            print(f"data / x: {x[batch_idx]} / y: {y[batch_idx]}")
-            print(f"data / output 0: {outputs[0][batch_idx].argmax(dim=-1)}")
+            assert isinstance(outputs, (tuple, list)), type(outputs)
 
-            # Visualize the outputs from the different heads
+            # Identify the start position of the target sequence for every sample
             bs = len(y)
-            ignore_idx = -1
             unmasked_tokens = y != ignore_idx
-            first_pos = unmasked_tokens.float().argmax(dim=1)    # (B,) – returns the first index in the case of a tie i.e., first index of one
+            first_pos = unmasked_tokens.float().argmax(dim=1)  # (B,)
 
-            # Crop out just the target sequence
-            target_seq = torch.stack([y[b, first_pos[b]:] for b in range(bs)], dim=0)[batch_idx]  # B(L-1) -> BL'
-            print("target seq:", target_seq)
+            for b in range(bs):
+                tgt_tokens = y[b, first_pos[b]:]  # 1-D tensor of target tokens for sample b
 
-            for head_idx, head_size in enumerate(model.head_sizes):
-                seq_rep = outputs[head_idx][torch.arange(bs, device=outputs[0].device), first_pos]  #  BLD -> BD (first unmasked token)
-                print("Sequence rep:", seq_rep.shape)
-                predicted_prob = seq_rep[batch_idx]
-                if head_size == "separate_bow":
-                    predicted_prob = torch.sigmoid(predicted_prob)
-                sorted_idx = torch.argsort(predicted_prob, descending=True, stable=True)
-                token_prob_map = {int(idx): float(predicted_prob[idx]) for idx in sorted_idx}
-                print(f"head size: {head_size} / prob: {predicted_prob} / sorted dict: {token_prob_map}")
+                for head_idx, head_size in enumerate(model.head_sizes):
+                    # Predicted probability distribution at the first target position
+                    seq_rep = outputs[head_idx][b, first_pos[b]]  # (V,)
 
-            break
+                    # Sort logits once per sample-head to speed things up
+                    sorted_vals, sorted_idx = torch.sort(seq_rep, descending=True, stable=True)
+
+                    # Build a rank map: token_id -> rank (1-based)
+                    rank_map = torch.empty_like(seq_rep, dtype=torch.long)
+                    rank_map[sorted_idx] = torch.arange(1, len(sorted_idx) + 1, device=seq_rep.device)
+
+                    for token in tgt_tokens:
+                        token_int = int(token.item())
+                        rank = int(rank_map[token_int].item())
+                        rank_histogram[head_size][rank] += 1
+                        total_counts[head_size] += 1
+
+        # ---------------------------------------------------------------------
+        # Summarise results
+        # ---------------------------------------------------------------------
+        for head_size, hist in rank_histogram.items():
+            if total_counts[head_size] == 0:
+                continue
+
+            # Compute average rank and top-k coverage (k = 1, 5, 10)
+            avg_rank = sum(r * c for r, c in hist.items()) / total_counts[head_size]
+            top1 = sum(c for r, c in hist.items() if r <= 1) / total_counts[head_size] * 100
+            top5 = sum(c for r, c in hist.items() if r <= 5) / total_counts[head_size] * 100
+            top10 = sum(c for r, c in hist.items() if r <= 10) / total_counts[head_size] * 100
+
+            print("=" * 80)
+            print(f"Head size: {head_size}")
+            print(f"  Avg. rank of target tokens: {avg_rank:.2f}")
+            print(f"  % of target tokens in top 1 logits:  {top1:.2f}%")
+            print(f"  % of target tokens in top 5 logits:  {top5:.2f}%")
+            print(f"  % of target tokens in top 10 logits: {top10:.2f}%")
+
     print("Terminating script...")
     exit()
 
