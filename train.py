@@ -219,20 +219,21 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
             print(f"data / x: {x[batch_idx]} / y: {y[batch_idx]}")
             print(f"data / output 0: {outputs[0][batch_idx].argmax(dim=-1)}")
 
-            if "separate_bow" in model.head_sizes:
-                head_idx = [i for i in range(len(model.head_sizes)) if model.head_sizes[i] == "separate_bow"]
-                assert len(head_idx) == 1, head_idx
-                head_idx = head_idx[0]
-                bs = len(y)
-                ignore_idx = -1
-                unmasked_tokens = y != ignore_idx
-                first_pos = unmasked_tokens.float().argmax(dim=1)    # (B,) – returns the first index in the case of a tie i.e., first index of one
-                seq_rep = outputs[head_idx][torch.arange(bs, device=outputs[1].device), first_pos]  #  BLD -> BD (first unmasked token)
+            # Visualize the outputs from the different heads
+            bs = len(y)
+            ignore_idx = -1
+            unmasked_tokens = y != ignore_idx
+            first_pos = unmasked_tokens.float().argmax(dim=1)    # (B,) – returns the first index in the case of a tie i.e., first index of one
+
+            for head_idx, head_size in enumerate(model.head_sizes):
+                seq_rep = outputs[head_idx][torch.arange(bs, device=outputs[0].device), first_pos]  #  BLD -> BD (first unmasked token)
                 print("Sequence rep:", seq_rep.shape)
-                predicted_prob = torch.sigmoid(seq_rep[batch_idx])
+                predicted_prob = seq_rep[batch_idx]
+                if head_size == "separate_bow":
+                    predicted_prob = torch.sigmoid(predicted_prob)
                 sorted_idx = torch.argsort(predicted_prob, descending=True, stable=True)
                 token_prob_map = {int(idx): float(predicted_prob[idx]) for idx in sorted_idx}
-                print(f"data / prob: {predicted_prob} / sorted dict: {token_prob_map}")
+                print(f"head size: {head_size} / prob: {predicted_prob} / sorted dict: {token_prob_map}")
 
             break
     print("Terminating script...")
