@@ -214,6 +214,7 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
         # Containers to accumulate ranks across the entire test set
         rank_histogram = {hs: defaultdict(int) for hs in model.head_sizes}
         total_counts = {hs: 0 for hs in model.head_sizes}
+        coverage_lists = {hs: [] for hs in model.head_sizes}
 
         ignore_idx = -1
         verbose = True
@@ -245,11 +246,18 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
                     rank_map = torch.empty_like(seq_rep, dtype=torch.long)
                     rank_map[sorted_idx] = torch.arange(1, len(sorted_idx) + 1, device=seq_rep.device)
 
+                    accepted_cnt = 0
                     for token in tgt_tokens:
                         token_int = int(token.item())
                         rank = int(rank_map[token_int].item())
                         rank_histogram[head_size][rank] += 1
                         total_counts[head_size] += 1
+                        if rank <= head_size:  # token visible inside prediction window
+                            accepted_cnt += 1
+
+                    # Record per-sequence acceptance percentage
+                    if len(tgt_tokens) > 0:
+                        coverage_lists[head_size].append(accepted_cnt / len(tgt_tokens))
 
                     if verbose and b == 0:
                         sorted_dict = {int(k): round(float(v), 2) for k, v in zip(sorted_idx, sorted_vals)}
@@ -266,6 +274,7 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
         rank_dump = {
             "rank_histogram": {int(k): {int(r): int(c) for r, c in v.items()} for k, v in rank_histogram.items()},
             "total_counts": {int(k): int(v) for k, v in total_counts.items()},
+            "coverage_lists": {int(k): v for k, v in coverage_lists.items()},
             "run_name": run_name,
             "timestamp": datetime.datetime.now().isoformat()
         }
@@ -286,12 +295,19 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
             top5 = sum(c for r, c in hist.items() if r <= 5) / total_counts[head_size] * 100
             top10 = sum(c for r, c in hist.items() if r <= 10) / total_counts[head_size] * 100
 
+            # Mean acceptance percentage per sequence
+            if coverage_lists[head_size]:
+                mean_accept = sum(coverage_lists[head_size]) / len(coverage_lists[head_size]) * 100
+            else:
+                mean_accept = float('nan')
+
             print("=" * 80)
             print(f"Head size: {head_size}")
             print(f"  Avg. rank of target tokens: {avg_rank:.2f}")
             print(f"  % of target tokens in top 1 logits:  {top1:.2f}%")
             print(f"  % of target tokens in top 5 logits:  {top5:.2f}%")
             print(f"  % of target tokens in top 10 logits: {top10:.2f}%")
+            print(f"  Avg. % of target tokens present per sequence: {mean_accept:.2f}%")
 
     print("Terminating script...")
     exit()

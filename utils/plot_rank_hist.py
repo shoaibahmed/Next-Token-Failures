@@ -34,15 +34,22 @@ def load_histograms(json_file: str):
 
     rank_hist: Dict[str, Dict[str, int]] = data["rank_histogram"]
     total_counts: Dict[str, int] = data["total_counts"]
+    coverage_lists: Dict[str, list] = data.get("coverage_lists", {})
     run_name: str = data.get("run_name", os.path.basename(json_file))
 
     # Convert keys back to int for convenience
     rank_hist = {int(hs): {int(r): int(c) for r, c in hist.items()} for hs, hist in rank_hist.items()}
     total_counts = {int(hs): int(cnt) for hs, cnt in total_counts.items()}
-    return run_name, rank_hist, total_counts
+    # Convert coverage list keys to int
+    coverage_lists = {int(hs): lst for hs, lst in coverage_lists.items()}
+
+    return run_name, rank_hist, total_counts, coverage_lists
 
 
-def plot_histograms(run_name: str, rank_hist: Dict[int, Dict[int, int]], total_counts: Dict[int, int]):
+def plot_histograms(run_name: str,
+                    rank_hist: Dict[int, Dict[int, int]],
+                    total_counts: Dict[int, int],
+                    coverage_lists: Dict[int, list]):
     output_dir = os.path.join("rank_eval_plots", run_name)
     os.makedirs(output_dir, exist_ok=True)
 
@@ -76,6 +83,19 @@ def plot_histograms(run_name: str, rank_hist: Dict[int, Dict[int, int]], total_c
         plt.savefig(out_path)
         plt.close()
 
+        # Histogram of per-sequence acceptance percentages
+        if head_size in coverage_lists and coverage_lists[head_size]:
+            plt.figure(figsize=(6, 4))
+            vals = coverage_lists[head_size]
+            plt.hist([v * 100 for v in vals], bins=20, color="darkorange", edgecolor="k", alpha=0.8)
+            plt.xlabel("% of target tokens accepted (per sequence)")
+            plt.ylabel("Count")
+            plt.title(f"Run: {run_name} – Head {head_size}\nDistribution of acceptance %")
+            plt.tight_layout()
+            out_path = os.path.join(output_dir, f"accept_hist_head_{head_size}.pdf")
+            plt.savefig(out_path)
+            plt.close()
+
 
 def main():
     json_files = glob(os.path.join("rank_eval_outputs", "*_rank_hist.json"))
@@ -85,8 +105,8 @@ def main():
 
     for jf in json_files:
         print("Processing", jf)
-        run_name, rank_hist, total_counts = load_histograms(jf)
-        plot_histograms(run_name, rank_hist, total_counts)
+        run_name, rank_hist, total_counts, coverage_lists = load_histograms(jf)
+        plot_histograms(run_name, rank_hist, total_counts, coverage_lists)
 
 
 if __name__ == "__main__":
