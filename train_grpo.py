@@ -336,8 +336,8 @@ for ep in range(args.epochs):
             target_log_probs = torch.gather(log_probs, dim=2, index=new_generated_tokens.unsqueeze(-1)).squeeze(-1)  # BLV -> BL
 
         # Define the correct output reward based on exact match (B*grpo_group_size) -> (B, grpo_group_size)
-        # Can either be a binary reward using .all(dim=-1) or numeric reward based on the number of correct tokens i.e., .sum(dim=-1)
-        rewards = target_y.eq(new_generated_tokens).sum(dim=-1).float()  # (B * grpo_group_size, num_tokens) -> ((B * grpo_group_size,)
+        # Can either be a binary reward using .all(dim=-1) or numeric reward based on the number of correct tokens i.e., .mean(dim=-1)
+        rewards = target_y.eq(new_generated_tokens).mean(dim=-1).float()  # (B * grpo_group_size, num_tokens) -> ((B * grpo_group_size,)
         rewards = rewards.reshape(-1, args.grpo_group_size)
 
         # Compute the advantage score
@@ -347,8 +347,8 @@ for ep in range(args.epochs):
         advantage = (rewards - mean) / (std + eps)
         advantage = advantage.detach().view(-1)  # flatten it out again (B*grpo_group_size)
 
-        # Compute the policy gradient -- similar to REINFORCE
-        reinforce_loss = - (target_log_probs * advantage.unsqueeze(-1)).mean()  # (BL, B1) -> scalar (negative log-likelihood)
+        # Compute the policy gradient -- similar to REINFORCE (use the sequence log prob for scaling)
+        reinforce_loss = - (target_log_probs.sum(dim=-1) * advantage).mean()  # (BL,) -> scalar (negative log-likelihood)
 
         kl_div = None
         if args.grpo_kl_beta > 0:
