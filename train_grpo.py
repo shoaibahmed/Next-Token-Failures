@@ -129,11 +129,16 @@ parser.add_argument(
 parser.add_argument(
         "--grpo-initial-sft-ep", type=int, default=1, help="Number of initial epochs for SFT when using GRPO from scratch",
     )
+parser.add_argument(
+        "--clip-grad-norm", type=float, default=None, help="Grad norm clipping threshold",
+    )
 
 args = parser.parse_args()
 
 assert 0 <= args.grpo_kl_beta, args.grpo_kl_beta
 assert not args.grpo_from_scratch or not args.use_grpo_val_set, "GRPO from scratch should have no val set training"
+if args.clip_grad_norm is not None and args.clip_grad_norm <= 0.:
+    args.clip_grad_norm = None
 
 # System stuff
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -177,6 +182,8 @@ warmup_iters = 100
 min_lr = 1e-5
 
 run_name = get_run_name(args)
+if args.clip_grad_norm is not None:
+    run_name += f"_clip_grad_{args.clip_grad_norm}"
 
 # Get tokenizer and de-tokenizer
 tokenizer = get_tokenizer(args)
@@ -300,6 +307,10 @@ for ep in range(args.epochs):
                 logits, loss, accs = model(x, y)
 
             scaler.scale(loss).backward()
+            if args.clip_grad_norm is not None:
+                # https://pytorch.org/docs/master/notes/amp_examples.html#gradient-clipping
+                scaler.unscale_(optimizer)  # get the gradients in the original scale
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
@@ -370,6 +381,10 @@ for ep in range(args.epochs):
             loss = reinforce_loss
 
         scaler.scale(loss).backward()
+        if args.clip_grad_norm is not None:
+            # https://pytorch.org/docs/master/notes/amp_examples.html#gradient-clipping
+            scaler.unscale_(optimizer)  # get the gradients in the original scale
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad(set_to_none=True)
