@@ -102,6 +102,9 @@ parser.add_argument(
 parser.add_argument(
         "--waypoint_len", type=str, default=None, help="Use waypoint task for the graph instead of the endpoint",
     )
+parser.add_argument(
+        "--clip-grad-norm", type=float, default=None, help="Grad norm clipping threshold",
+    )
 
 args = parser.parse_args()
 # System stuff
@@ -121,6 +124,8 @@ if args.waypoint_len is not None:
         assert args.waypoint_len == "all", args.waypoint_len
     if isinstance(args.waypoint_len, int) and args.waypoint_len < 1:
         args.waypoint_len = None
+if args.clip_grad_norm is not None and args.clip_grad_norm <= 0.:
+    args.clip_grad_norm = None
 
 # Model stuff
 top_k = 1
@@ -146,10 +151,10 @@ warmup_iters = 100
 min_lr = 1e-5
 
 run_name = get_run_name(args)
-if args.clip_grad_norm is not None:
-    run_name += f"_n_layers_{args.n_layer}" if args.n_layer != 6 else ""
-    run_name += f"_n_embed_{args.n_embd}" if args.n_embd != 384 else ""
-    run_name += f"_n_head_{args.n_head}" if args.n_head != 6 else ""
+run_name += f"_clip_grad_{args.clip_grad_norm}" if args.clip_grad_norm is not None else ""
+run_name += f"_n_layers_{args.n_layer}" if args.n_layer != 6 else ""
+run_name += f"_n_embed_{args.n_embd}" if args.n_embd != 384 else ""
+run_name += f"_n_head_{args.n_head}" if args.n_head != 6 else ""
 path = './checkpoints/' + run_name + '.pt'
 
 # Get tokenizer and de-tokenizer
@@ -343,6 +348,10 @@ for ep in range(args.epochs):
         total_loss.update(loss.item(), x.shape[0] * train_data.num_target_tokens)
         total_acc.update(accs['acc'], x.shape[0])
         scaler.scale(loss).backward()
+        if args.clip_grad_norm is not None:
+            # https://pytorch.org/docs/master/notes/amp_examples.html#gradient-clipping
+            scaler.unscale_(optimizer)  # get the gradients in the original scale
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad(set_to_none=True)
