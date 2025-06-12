@@ -25,7 +25,7 @@ parser.add_argument(
         "--n_layer", type=int, default=6, help="Number of layers",
     )
 parser.add_argument(
-        "--n_embd", type=int, default=240, help="Embedding size",
+        "--n_embd", type=int, default=384, help="Embedding size",
     )
 parser.add_argument(
         "--n_head", type=int, default=6, help="Number of heads",
@@ -146,6 +146,10 @@ warmup_iters = 100
 min_lr = 1e-5
 
 run_name = get_run_name(args)
+if args.clip_grad_norm is not None:
+    run_name += f"_n_layers_{args.n_layer}" if args.n_layer != 6 else ""
+    run_name += f"_n_embed_{args.n_embd}" if args.n_embd != 384 else ""
+    run_name += f"_n_head_{args.n_head}" if args.n_head != 6 else ""
 path = './checkpoints/' + run_name + '.pt'
 
 # Get tokenizer and de-tokenizer
@@ -217,7 +221,7 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
         coverage_lists = {hs: [] for hs in model.head_sizes}
 
         ignore_idx = -1
-        verbose = True
+        verbose = False
         for x, y in tqdm(test_loader, desc="Ranking eval"):
             # Get logits for all heads (full sequence length – teacher forcing)
             with ctx:
@@ -252,8 +256,8 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
                         rank = int(rank_map[token_int].item())
                         rank_histogram[head_size][rank] += 1
                         total_counts[head_size] += 1
-                        if rank <= head_size:  # token visible inside prediction window
-                            accepted_cnt += 1
+                        if (head_size == "separate_bow" and rank <= len(tgt_tokens)) or (head_size != "separate_bow" and rank <= head_size):
+                            accepted_cnt += 1  # token visible inside prediction window
 
                     # Record per-sequence acceptance percentage
                     if len(tgt_tokens) > 0:
