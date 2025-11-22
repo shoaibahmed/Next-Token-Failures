@@ -50,6 +50,7 @@ class GPTConfig:
     head_sizes: List[int] = field(default_factory = lambda: [1])
     head_weights: List[float] = field(default_factory = lambda: [1.])
     boundary_condition: str = 'normalize'
+    pred_horizon: int = 0
     next_lat_lambda: float = 1.0
     kl_lambda: float = 1.0
 

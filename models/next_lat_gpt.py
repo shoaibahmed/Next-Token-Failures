@@ -10,6 +10,8 @@ from utils.training_utils import accuracy
 
 class LatentDynamicsModel(torch.nn.Module):
     def __init__(self, n_embd: int):
+        super().__init__()
+
         # Follow the setup from https://arxiv.org/abs/2511.05963 (appendix C)
         # Note: we are using the representation of the model after the final layer norm
         input_dim = 2 * n_embd  # previous hidden dim and input embedding
@@ -46,7 +48,7 @@ class NextLatGPT(Transformer):
         self.ignore_idx = -1
         self.loss_smooth_l1 = torch.nn.SmoothL1Loss()
         self.kl_div = torch.nn.KLDivLoss(reduction='batchmean', log_target=False)  # Note: input in log space
-        self.loss_ce = torch.nn.CrossEntropyLoss(ignore_index=ignore_idx)
+        self.loss_ce = torch.nn.CrossEntropyLoss(ignore_index=self.ignore_idx)
 
         # Define the loss weights
         self.next_lat_lambda = config.next_lat_lambda
