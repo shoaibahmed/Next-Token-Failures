@@ -323,7 +323,7 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
 
 # Setup wandb logging
 if wandb_log:
-    wandb.init(project='next-token-failures', entity=wandb_entity, config=args.__dict__,)
+    wandb.init(project='next-token-failures-latest', entity=wandb_entity, config=args.__dict__,)
     wandb.run.name = run_name
 
 results = {}

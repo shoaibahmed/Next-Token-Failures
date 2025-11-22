@@ -1,5 +1,6 @@
 from models.gpt import GPT
 from models.multihead_gpt import MultiheadGPT
+from models.next_lat_gpt import NextLatGPT
 from models.pythia import Pythia
 from models.config import GPTConfig
 
@@ -18,6 +19,13 @@ def get_model(args):
                            teacherless_token=args.teacherless_token, head_sizes=head_sizes, head_weights=head_weights,
                            boundary_condition=args.multihead_boundary_condition)
         model = MultiheadGPT(config)
+    elif args.model == 'next_lat_gpt':
+        args.pred_horizon = args.path_len - 2  # based on the next-lat paper
+        config = GPTConfig(n_layers=args.n_layer, n_heads=args.n_head, n_embd=args.n_embd, block_size=args.block_size,
+                           bias=True, vocab_size=args.vocab_size, dropout=0, use_flash=args.use_flash,
+                           teacherless_token=args.teacherless_token, pred_horizon=args.pred_horizon,
+                           next_lat_lambda=1.0, kl_lambda=1.0)
+        model = NextLatGPT(config)
     elif args.model.startswith('gpt2'):
         model = GPT.from_pretrained(args.model, teacherless_token=args.teacherless_token)
         if args.block_size < 1024:

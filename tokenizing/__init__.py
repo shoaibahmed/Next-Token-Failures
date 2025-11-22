@@ -37,7 +37,7 @@ class Tokenizer:
 
 
 def get_tokenizer(args):
-    if args.model in ['gpt', 'multihead_gpt']:
+    if args.model in ['gpt', 'next_lat_gpt', 'multihead_gpt']:
         t = NumeralTokenizer(args.num_nodes)
         tokenizer = Tokenizer(encoder=t.encode, decoder=t.decode, vocab_size=args.num_nodes + 4, name='numeral')
     elif args.model.startswith('gpt2'):
