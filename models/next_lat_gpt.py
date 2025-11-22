@@ -45,7 +45,7 @@ class NextLatGPT(Transformer):
         # Define the loss functions
         self.ignore_idx = -1
         self.loss_smooth_l1 = torch.nn.SmoothL1Loss()
-        self.kl_div = torch.nn.KLDivLoss(log_target=False)  # Note: input in log space
+        self.kl_div = torch.nn.KLDivLoss(reduction='batchmean', log_target=False)  # Note: input in log space
         self.loss_ce = torch.nn.CrossEntropyLoss(ignore_index=ignore_idx)
 
         # Define the loss weights
