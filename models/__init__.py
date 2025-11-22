@@ -20,7 +20,6 @@ def get_model(args):
                            boundary_condition=args.multihead_boundary_condition)
         model = MultiheadGPT(config)
     elif args.model == 'next_lat_gpt':
-        args.pred_horizon = args.path_len - 2  # based on the next-lat paper
         config = GPTConfig(n_layers=args.n_layer, n_heads=args.n_head, n_embd=args.n_embd, block_size=args.block_size,
                            bias=True, vocab_size=args.vocab_size, dropout=0, use_flash=args.use_flash,
                            teacherless_token=args.teacherless_token, pred_horizon=args.pred_horizon,

@@ -150,6 +150,7 @@ args.use_flash = True if device == 'cuda' else False
 warmup_iters = 100
 min_lr = 1e-5
 
+args.pred_horizon = args.path_len - 1  # based on the next-lat paper
 run_name = get_run_name(args)
 run_name += f"_clip_grad_{args.clip_grad_norm}" if args.clip_grad_norm is not None else ""
 run_name += f"_n_layers_{args.n_layer}" if args.n_layer != 6 else ""

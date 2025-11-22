@@ -53,6 +53,8 @@ def get_run_name(args):
             name += f"_heads_{args.prediction_head_sizes}_weights_{args.prediction_head_weights}"
             if args.multihead_boundary_condition is not None:
                 name += f"_boundary_{args.multihead_boundary_condition}"
+        elif args.model == "next_lat_gpt":
+            name += f"_horizon_{args.pred_horizon}"
     elif args.dataset == 'chess':
         assert not args.model == "multihead_gpt", args.model
         assert args.waypoint_len is None
