@@ -82,7 +82,7 @@ class NextLatGPT(Transformer):
             accs = {"acc": acc, "token_acc": token_acc}
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim
+            logits = self.lm_head(latents[:, [-1], :])  # note: using list [-1] to preserve the time dim
             loss, accs = None, None
 
         # Compute the next-latent prediction loss
@@ -91,15 +91,16 @@ class NextLatGPT(Transformer):
             regression_loss = 0.
             kl_loss = 0.
             probs = torch.softmax(logits.detach(), dim=-1)
-            input_latents = latents[:, :-1, :]  # discard last latent for the target
+            input_latents = latents  # start with the original latents
             for horizon in range(1, self.pred_horizon+1):
                 # Get the input and target latents
                 target_latents = latents[:, horizon:, :]
                 next_token = tokens[:, horizon:]
                 target_probs = probs[:, horizon:, :]
+                input_latents = input_latents[:, :-1, :]  # discard last latent for the target
 
                 # Roll the dynamics model to predict the next latents
-                predicted_latents = self.latent_dynamics_model(input_latents, next_token)
+                predicted_latents = self.latent_dynamics_model(next_token, input_latents)
 
                 # Compute the smooth L1 loss on the predicted latents (note: detach is important)
                 regression_loss = regression_loss + self.loss_smooth_l1(predicted_latents, target_latents.detach())
@@ -115,7 +116,7 @@ class NextLatGPT(Transformer):
                 kl_loss = kl_loss + self.kl_div(predicted_log_probs, target_probs.detach())
 
                 # Use the predicted latents as the input for the next iteration
-                input_latents = predicted_latents[:, 1:, :]  # move by a stride of 1
+                input_latents = predicted_latents
 
             # Compute the total loss
             total_loss = loss + self.next_lat_lambda * regression_loss + self.kl_lambda * kl_loss
