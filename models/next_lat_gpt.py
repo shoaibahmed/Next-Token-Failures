@@ -44,11 +44,11 @@ class NextLatGPT(Transformer):
         # Setup the latent dynamics model
         self.latent_dynamics_model = LatentDynamicsModel(config.n_embd)
 
-        # Define the loss functions
+        # Define the loss functions (with no reduction to support masking)
         self.ignore_idx = -1
-        self.loss_smooth_l1 = torch.nn.SmoothL1Loss()
-        self.kl_div = torch.nn.KLDivLoss(reduction='batchmean', log_target=False)  # Note: input in log space
         self.loss_ce = torch.nn.CrossEntropyLoss(ignore_index=self.ignore_idx)
+        self.loss_smooth_l1 = torch.nn.SmoothL1Loss(reduction='none')
+        self.kl_div = torch.nn.KLDivLoss(reduction='none', log_target=False)  # Note: input in log space
 
         # Define the loss weights
         self.next_lat_lambda = config.next_lat_lambda
@@ -88,32 +88,54 @@ class NextLatGPT(Transformer):
         # Compute the next-latent prediction loss
         total_loss = loss
         if loss is not None:
+            assert targets is not None
             regression_loss = 0.
             kl_loss = 0.
             probs = torch.softmax(logits.detach(), dim=-1)
             input_latents = latents  # start with the original latents
-            for horizon in range(1, self.pred_horizon+1):
-                # Get the input and target latents
-                target_latents = latents[:, horizon:, :]
-                next_token = tokens[:, horizon:]
-                target_probs = probs[:, horizon:, :]
-                input_latents = input_latents[:, :-1, :]  # discard last latent for the target
 
-                # Roll the dynamics model to predict the next latents
+            # Ignore the prefix tokens like the CE loss
+            # Target should be -1 for the tokens to be ignored at the output
+            # Only use the input and targets for the kept tokens
+            keep_mask = (targets != self.ignore_idx).float()  # (B, T)
+
+            max_horizon = min(self.pred_horizon, seq_len - 1)
+            for horizon in range(1, max_horizon + 1):
+                # Get the input and target latents
+                target_latents = latents[:, horizon:, :]  # (B, T-h, D)
+                next_token = tokens[:, horizon:]  # (B, T-h, D)
+                target_probs = probs[:, horizon:, :]  # (B, T-h, V)
+                input_latents = input_latents[:, :-1, :]  # (B, T-h+1, D)
+
+                # Mask for positions where we have valid targets
+                mask = keep_mask[:, horizon:]  # (B, T-h)
+                mask_count = mask.sum().clamp_min(1.0)  # avoid div by zero
+
+                # Roll the dynamics model to predict the next latents: (B, T-h, D)
                 predicted_latents = self.latent_dynamics_model(next_token, input_latents)
 
                 # Compute the smooth L1 loss on the predicted latents (note: detach is important)
-                regression_loss = regression_loss + self.loss_smooth_l1(predicted_latents, target_latents.detach())
+                reg_per_pos = self.loss_smooth_l1(
+                    predicted_latents, target_latents.detach()
+                ).mean(dim=-1)  # (B, T-h, D) -> (B, T-h)
+                reg_sum = (reg_per_pos * mask).sum()
+                regression_loss = regression_loss + reg_sum / mask_count
 
                 # Compute the KL loss using the output head (with the output head frozen)
-                # A computationally bad but visually elegant way to do it would be: copy.deepcopy(self.lm_head)(predicted_latents)
+                # A computationally bad but visually elegant way to do it would be:
+                # copy.deepcopy(self.lm_head)(predicted_latents)
                 predicted_logits = torch.nn.functional.linear(
                     predicted_latents, 
                     self.lm_head.weight.detach(), 
                     bias=self.lm_head.bias.detach() if self.lm_head.bias is not None else None
                 )
                 predicted_log_probs = torch.nn.functional.log_softmax(predicted_logits, dim=-1)
-                kl_loss = kl_loss + self.kl_div(predicted_log_probs, target_probs.detach())
+
+                kl_per_pos = self.kl_div(
+                    predicted_log_probs, target_probs.detach()
+                ).sum(dim=-1)  # (B, T-h, V) -> (B, T-h)
+                kl_sum = (kl_per_pos * mask).sum()
+                kl_loss = kl_loss + kl_sum / mask_count
 
                 # Use the predicted latents as the input for the next iteration
                 input_latents = predicted_latents
