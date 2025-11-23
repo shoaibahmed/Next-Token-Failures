@@ -141,31 +141,8 @@ class NextLatGPT(Transformer):
                 input_latents = predicted_latents
 
             # Compute the total loss
+            regression_loss = regression_loss / max_horizon
+            kl_loss = kl_loss / max_horizon
             total_loss = loss + self.next_lat_lambda * regression_loss + self.kl_lambda * kl_loss
 
         return logits, total_loss, accs
-
-
-if __name__ == "__main__":
-    # Execution: python -m models.next_lat_gpt
-
-    import time
-    from tqdm import tqdm
-
-    vocab_size: int = 10
-    seq_len = 100
-    ignore_idx = -1
-    prefix_len = int(0.1 * seq_len)
-
-    def get_input():
-        input_ids = torch.randint(0, vocab_size, size=(1, seq_len,))
-        input_ids[:, :prefix_len] = ignore_idx  # mask the prefix
-        return input_ids
-
-    start_time = time.time()
-    n_samples = 100
-    for _ in tqdm(range(n_samples)):
-        input = get_input()  # get the input
-        # TODO: forward prop through the model
-    elapsed = time.time() - start_time
-    print(f"Base implementation elapsed time: {elapsed:.2f} secs")
