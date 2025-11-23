@@ -55,6 +55,8 @@ def get_run_name(args):
         name += f"_wd{args.weight_decay}"
     if args.batch_size != 256:
         name += f"_bs{args.batch_size}"
+    if args.epochs != 100:
+        name += f"_ep{args.epochs}"
 
     if args.dataset == 'graph':
         waypoint_str = f"_waypoint_len_{args.waypoint_len}" if args.waypoint_len is not None else ""
