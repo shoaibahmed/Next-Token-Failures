@@ -55,13 +55,13 @@ parser.add_argument(
         "--unrolled", action=argparse.BooleanOptionalAction, default=True, help="For chess, unrolled board state",
     )
 parser.add_argument(
-        "--batch_size", type=int, default=64, help="Batch size",
+        "--batch_size", type=int, default=256, help="Batch size",
     )
 parser.add_argument(
         "--lr", type=float, default=5e-4, help="Learning rate",
     )
 parser.add_argument(
-        "--weight_decay", type=float, default=1e-2, help="Strength of weight decay",
+        "--weight_decay", type=float, default=0.0, help="Strength of weight decay",
     )
 parser.add_argument(
         "--epochs", type=int, default=100, help="Number of epochs",
@@ -190,7 +190,8 @@ model.train()
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
-optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0)
+optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay,
+                              betas=(0.9, 0.95))
 ctx = nullcontext() if device == 'cpu' else torch.amp.autocast(device_type=device, dtype=ptdtype)
 
 # Define checkpoint path

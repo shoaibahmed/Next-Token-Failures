@@ -45,6 +45,17 @@ def accuracy(logits, targets):
 
 def get_run_name(args):
     name = args.dataset + "_" + args.model
+    if args.n_layer != 6:
+        name += f"_l{args.n_layer}"
+    if args.n_head != 6:
+        name += f"_h{args.n_head}"
+    if args.n_embd != 384:
+        name += f"_e{args.n_embd}"
+    if args.weight_decay != 0.:
+        name += f"_wd{args.weight_decay}"
+    if args.batch_size != 256:
+        name += f"_bs{args.batch_size}"
+
     if args.dataset == 'graph':
         waypoint_str = f"_waypoint_len_{args.waypoint_len}" if args.waypoint_len is not None else ""
         name += '_deg' + str(args.deg) + '_path_' + str(args.path_len) + 'num_nodes_' + str(args.num_nodes) + waypoint_str + \
