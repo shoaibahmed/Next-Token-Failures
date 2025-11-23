@@ -105,7 +105,7 @@ class NextLatGPT(Transformer):
                 target_latents = latents[:, horizon:, :]  # (B, T-h, D)
                 next_token = tokens[:, horizon:]  # (B, T-h, D)
                 target_probs = probs[:, horizon:, :]  # (B, T-h, V)
-                input_latents = input_latents[:, :-1, :]  # (B, T-h+1, D)
+                input_latents = input_latents[:, :-1, :]  # (B, T-h, D)
 
                 # Mask for positions where we have valid targets
                 mask = keep_mask[:, horizon:]  # (B, T-h)
