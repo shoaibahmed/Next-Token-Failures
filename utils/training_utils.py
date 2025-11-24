@@ -68,6 +68,12 @@ def get_run_name(args):
                 name += f"_boundary_{args.multihead_boundary_condition}"
         elif args.model == "next_lat_gpt":
             name += f"_horizon_{args.pred_horizon}"
+            if args.next_lat_lambda != 1.0 or args.kl_lambda != 1.0:
+                name += "_lambda"
+                if args.next_lat_lambda != 1.0:
+                    name += f"_nl_{args.next_lat_lambda}"
+                if args.kl_lambda != 1.0:
+                    name += f"_kl_{args.kl_lambda}"
     elif args.dataset == 'chess':
         assert not args.model == "multihead_gpt", args.model
         assert args.waypoint_len is None

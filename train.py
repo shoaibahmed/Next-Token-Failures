@@ -100,6 +100,12 @@ parser.add_argument(
     "--multihead_boundary_condition", type=str, default='normalize', help='Boundary condition to be used when computing multi-head targets'
     )
 parser.add_argument(
+        "--next_lat_lambda", type=float, default=1.0, help="Lambda to use for weighting the next latent prediction loss (with next_lat_gpt)",
+    )
+parser.add_argument(
+        "--kl_lambda", type=float, default=1.0, help="Lambda to use for weighting the KL loss (with next_lat_gpt)",
+    )
+parser.add_argument(
         "--waypoint_len", type=str, default=None, help="Use waypoint task for the graph instead of the endpoint",
     )
 parser.add_argument(
@@ -140,7 +146,7 @@ assert len(args.prediction_head_sizes.split(",")) == len(args.prediction_head_we
         f"list length mismatch: {args.prediction_head_sizes.split(',')} != {args.prediction_head_weights.split(',')}"
 
 # Optimiser
-dtype = 'float32'
+dtype = 'float16'
 ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
 beta1 = 0.9
 beta2 = 0.95
