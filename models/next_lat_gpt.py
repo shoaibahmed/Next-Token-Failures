@@ -88,6 +88,7 @@ class NextLatGPT(Transformer):
 
         # Compute the next-latent prediction loss
         total_loss = loss
+        loss_dict = {"next_tok": loss}
         if loss is not None:
             assert targets is not None
             regression_loss = 0.
@@ -147,6 +148,9 @@ class NextLatGPT(Transformer):
             # Compute the total loss
             regression_loss = regression_loss / max_horizon
             kl_loss = kl_loss / max_horizon
+            loss_dict["regression"] = regression_loss
+            loss_dict["kl"] = kl_loss
             total_loss = loss + self.next_lat_lambda * regression_loss + self.kl_lambda * kl_loss
 
-        return logits, total_loss, accs
+        loss_dict["total"] = total_loss
+        return logits, loss_dict, accs

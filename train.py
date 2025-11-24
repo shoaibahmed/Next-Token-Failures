@@ -347,6 +347,12 @@ for ep in range(args.epochs):
         with ctx:
             logits, loss, accs = model(x, y)
 
+        loss_dict = None
+        if isinstance(loss, dict):
+            loss_dict = loss
+            loss = loss_dict["total"]
+        assert isinstance(loss, torch.Tensor), type(loss)
+
         total_loss.update(loss.item(), x.shape[0] * train_data.num_target_tokens)
         total_acc.update(accs['acc'], x.shape[0])
         scaler.scale(loss).backward()
@@ -363,7 +369,11 @@ for ep in range(args.epochs):
              total_acc.get(percentage=True))
         )
         if wandb_log:
-            wandb.log({"train/epoch": ep, "train/loss": total_loss.get(), "train/acc": total_acc.get(percentage=True)})
+            output_dict = {"train/epoch": ep, "train/loss": total_loss.get(), "train/acc": total_acc.get(percentage=True)}
+            if loss_dict is not None:
+                for k, v in loss_dict.items():
+                    output_dict[f"train/loss_stats/{k}"] = v
+            wandb.log(output_dict)
 
     # evaluate the loss on train/val sets and write checkpoints
     if ep % args.eval_every == 0:
