@@ -140,13 +140,13 @@ assert len(args.prediction_head_sizes.split(",")) == len(args.prediction_head_we
         f"list length mismatch: {args.prediction_head_sizes.split(',')} != {args.prediction_head_weights.split(',')}"
 
 # Optimiser
-dtype = 'float16'
+dtype = 'float32'
 ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
 beta1 = 0.9
-beta2 = 0.999
+beta2 = 0.95
 decay_lr = True
 args.compile = True if device == 'cuda' else False
-args.use_flash = True if device == 'cuda' else False
+args.use_flash = True if device == 'cuda' and dtype in ["float16", "bfloat16"] else False
 warmup_iters = 100
 min_lr = 1e-5
 
@@ -191,7 +191,7 @@ model.train()
 # initialize a GradScaler. If enabled=False scaler is a no-op
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
 optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay,
-                              betas=(0.9, 0.95))
+                              betas=(beta1, beta2))
 ctx = nullcontext() if device == 'cpu' else torch.amp.autocast(device_type=device, dtype=ptdtype)
 
 # Define checkpoint path
@@ -325,7 +325,7 @@ if args.save_checkpoints and os.path.exists(checkpoint_path):
 
 # Setup wandb logging
 if wandb_log:
-    wandb.init(project='next-token-failures-latest', entity=wandb_entity, config=args.__dict__,)
+    wandb.init(project='next-token-failures-next-lat', entity=wandb_entity, config=args.__dict__,)
     wandb.run.name = run_name
 
 results = {}
