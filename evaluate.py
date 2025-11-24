@@ -72,6 +72,10 @@ def evaluate_forced(model, loader, ctx, results=None, mode='test'):
         with ctx:
             logits, loss, accs = model(x, y)
 
+        if isinstance(loss, dict):
+            loss = loss["total"]
+        assert isinstance(loss, torch.Tensor), type(loss)
+
         # Convert tensors to Python scalars for proper accumulation and logging
         total_acc.update(val=accs['acc'].item(), num=x.shape[0])
         total_loss.update(val=loss.item(), num=x.shape[0])
