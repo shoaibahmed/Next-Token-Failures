@@ -53,6 +53,7 @@ class NextLatGPT(Transformer):
         # Define the loss weights
         self.next_lat_lambda = config.next_lat_lambda
         self.kl_lambda = config.kl_lambda
+        self.mask_latent_reg = False  # the paper mentioned to not use masking for latents
 
     def forward(self, idx, targets=None):
         device = idx.device
@@ -115,11 +116,14 @@ class NextLatGPT(Transformer):
                 predicted_latents = self.latent_dynamics_model(next_token, input_latents)
 
                 # Compute the smooth L1 loss on the predicted latents (note: detach is important)
-                reg_per_pos = self.loss_smooth_l1(
+                reg_per_loc = self.loss_smooth_l1(
                     predicted_latents, target_latents.detach()
-                ).mean(dim=-1)  # (B, T-h, D) -> (B, T-h)
-                reg_sum = (reg_per_pos * mask).sum()
-                regression_loss = regression_loss + reg_sum / mask_count
+                )
+                if self.mask_latent_reg:
+                    reg_sum = (reg_per_loc.mean(dim=-1) * mask).sum()  # (B, T-h, D) -> (B, T-h) -> scalar
+                    regression_loss = regression_loss + reg_sum / mask_count
+                else:
+                    regression_loss = regression_loss + reg_per_loc.mean()  # (B, T-h, D) -> scalar
 
                 # Compute the KL loss using the output head (with the output head frozen)
                 # A computationally bad but visually elegant way to do it would be:
