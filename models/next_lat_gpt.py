@@ -64,10 +64,9 @@ class NextLatGPT(Transformer):
         start_pos = 0 if self.cache is None or not self.cache.use_caching else self.cache.cur_seq_len[0]
         pos = torch.arange(start_pos, seq_len + start_pos, dtype=torch.long, device=device).unsqueeze(0)
         pos_emb = self.pos_encoding(pos)
-        tokens = tok_emb + pos_emb
+        x = tok_emb + pos_emb
 
         # Base transformer layers
-        x = tokens
         for block in self.layers:
             x = block(x, self.cache)
         latents = self.final_layernorm(x)
@@ -95,6 +94,7 @@ class NextLatGPT(Transformer):
             kl_loss = 0.
             probs = torch.softmax(logits.detach(), dim=-1)
             input_latents = latents  # start with the original latents
+            tokens = tok_emb.detach()  # don't update the token embeddings
 
             # Ignore the prefix tokens like the CE loss
             # Target should be -1 for the tokens to be ignored at the output

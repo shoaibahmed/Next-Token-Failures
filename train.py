@@ -61,7 +61,7 @@ parser.add_argument(
         "--lr", type=float, default=5e-4, help="Learning rate",
     )
 parser.add_argument(
-        "--weight_decay", type=float, default=0.0, help="Strength of weight decay",
+        "--weight_decay", type=float, default=1e-2, help="Strength of weight decay",
     )
 parser.add_argument(
         "--epochs", type=int, default=100, help="Number of epochs",
@@ -158,10 +158,6 @@ min_lr = 1e-5
 
 args.pred_horizon = args.path_len - 2  # based on the next-lat paper (input seq: L-1; latents w/ target: L-2)
 run_name = get_run_name(args)
-run_name += f"_clip_grad_{args.clip_grad_norm}" if args.clip_grad_norm is not None else ""
-run_name += f"_n_layers_{args.n_layer}" if args.n_layer != 6 else ""
-run_name += f"_n_embed_{args.n_embd}" if args.n_embd != 384 else ""
-run_name += f"_n_head_{args.n_head}" if args.n_head != 6 else ""
 path = './checkpoints/' + run_name + '.pt'
 
 # Get tokenizer and de-tokenizer
