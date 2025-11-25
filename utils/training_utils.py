@@ -51,8 +51,12 @@ def get_run_name(args):
         name += f"_h{args.n_head}"
     if args.n_embd != 384:
         name += f"_e{args.n_embd}"
-    if args.weight_decay != 0.:
+    if args.lr != 5e-4:
+        name += f"_lr{args.lr}"
+    if args.weight_decay != 1e-2:
         name += f"_wd{args.weight_decay}"
+    if args.clip_grad_norm is not None:
+        name += f"_clip{args.clip_grad_norm}"
     if args.batch_size != 256:
         name += f"_bs{args.batch_size}"
     if args.epochs != 100:
