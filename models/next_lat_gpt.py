@@ -24,6 +24,14 @@ class LatentDynamicsModel(torch.nn.Module):
             torch.nn.Linear(n_embd, n_embd),
         ) # three layered MLP
 
+        # Initialize the weights
+        self.init_weights()
+
+    def init_weights(self):
+        # Initialize such that the output of the model is identity (via the skip connection)
+        self.latent_dynamics_model[-1].weight.data.zero_()
+        self.latent_dynamics_model[-1].bias.data.zero_()
+
     def forward(self, token_embed: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
         input_state = torch.cat([token_embed, h], dim=-1)  # concatenate in hidden dim
         pred_h = h + self.latent_dynamics_model(input_state)
