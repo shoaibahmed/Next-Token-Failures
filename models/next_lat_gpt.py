@@ -75,7 +75,7 @@ class NextLatGPT(Transformer):
         tokens = tok_emb + pos_emb
 
         # Base transformer layers
-        x = tokens  # start with the token embeddings
+        x = tokens  # start with the token + positional embeddings
         for block in self.layers:
             x = block(x, self.cache)
         latents = self.final_layernorm(x)
@@ -103,7 +103,9 @@ class NextLatGPT(Transformer):
             kl_loss = 0.
             probs = torch.softmax(logits.detach(), dim=-1)
             input_latents = latents  # start with the original latents
-            tokens = tokens.detach()  # don't update the token embeddings
+
+            # Note: we don't call detach from the original embeddings as it wasn't specified in the algo
+            tokens = tok_emb  # embeddings without positional encodings (not specified in the paper)
 
             # Ignore the prefix tokens like the CE loss
             # Target should be -1 for the tokens to be ignored at the output
