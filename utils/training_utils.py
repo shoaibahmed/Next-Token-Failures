@@ -71,7 +71,8 @@ def get_run_name(args):
             if args.multihead_boundary_condition is not None:
                 name += f"_boundary_{args.multihead_boundary_condition}"
         elif args.model == "next_lat_gpt":
-            name += "_v2"
+            name += "_v5_wo_detch_tok_embd"
+            name += "_all_lat" if args.all_latent_pred else ""
             if args.pred_horizon != args.path_len - 2:
                 name += f"_horizon_{args.pred_horizon}"
             if args.next_lat_lambda != 1.0 or args.kl_lambda != 1.0:
