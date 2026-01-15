@@ -23,7 +23,8 @@ def get_model(args):
         config = GPTConfig(n_layers=args.n_layer, n_heads=args.n_head, n_embd=args.n_embd, block_size=args.block_size,
                            bias=True, vocab_size=args.vocab_size, dropout=0, use_flash=args.use_flash,
                            teacherless_token=args.teacherless_token, pred_horizon=args.pred_horizon,
-                           next_lat_lambda=args.next_lat_lambda, kl_lambda=args.kl_lambda)
+                           next_lat_lambda=args.next_lat_lambda, kl_lambda=args.kl_lambda,
+                           all_latent_pred=args.all_latent_pred)
         model = NextLatGPT(config)
     elif args.model.startswith('gpt2'):
         model = GPT.from_pretrained(args.model, teacherless_token=args.teacherless_token)

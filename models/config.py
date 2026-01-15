@@ -53,6 +53,7 @@ class GPTConfig:
     pred_horizon: int = 0
     next_lat_lambda: float = 1.0
     kl_lambda: float = 1.0
+    all_latent_pred: bool = False
 
 
 @dataclass

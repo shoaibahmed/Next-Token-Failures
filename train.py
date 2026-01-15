@@ -111,6 +111,9 @@ parser.add_argument(
 parser.add_argument(
         "--clip-grad-norm", type=float, default=None, help="Grad norm clipping threshold",
     )
+parser.add_argument(
+        "--all_latent_pred", action=argparse.BooleanOptionalAction, default=False, help="Make prediction on all layers",
+    )
 
 args = parser.parse_args()
 # System stuff
