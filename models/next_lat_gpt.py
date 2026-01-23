@@ -131,7 +131,7 @@ class NextLatGPT(Transformer):
             # Target should be -1 for the tokens to be ignored at the output
             # Only use the input and targets for the kept tokens
             keep_mask = (targets != self.ignore_idx).float()  # (B, T)
-            max_horizon = min(self.pred_horizon, seq_len - 1)
+            max_horizon = min(self.pred_horizon, seq_len - self.num_prev_latents)
 
             # Pick the latent states for the selected layers
             assert len(all_latents) == len(self.layers), \
@@ -142,22 +142,27 @@ class NextLatGPT(Transformer):
 
             for layer_idx, latents in enumerate(all_latents):
                 input_latents = latents  # start with the original latents
+
+                current_input_streams = []
+                for i in range(self.num_prev_latents):
+                    end = seq_len - self.num_prev_latents + i
+                    current_input_streams.append(input_latents[:, i:end, :])
+
                 for horizon in range(1, max_horizon + 1):
                     # Get the input and target latents
-                    if self.num_prev_latents > 1:
-                        raise NotImplementedError
-                    target_latents = latents[:, horizon:, :]  # (B, T-h, D)
-                    next_token = tokens[:, horizon:]  # (B, T-h, D)
-                    target_probs = probs[:, horizon:, :]  # (B, T-h, V)
-                    input_latents = input_latents[:, :-1, :]  # (B, T-h, D)
+                    start_idx = horizon + self.num_prev_latents - 1  # start should be at horizon for num_prev_latents=1
+                    target_latents = latents[:, start_idx:, :]  # (B, T-h, D)
+                    next_token = tokens[:, start_idx:]  # (B, T-h, D)
+                    target_probs = probs[:, start_idx:, :]  # (B, T-h, V)
+                    # input_latents = input_latents[:, :-1, :]  # (B, T-h, D)
 
                     # Mask for positions where we have valid targets
-                    mask = keep_mask[:, horizon:]  # (B, T-h)
+                    mask = keep_mask[:, start_idx:]  # (B, T-h)
                     mask_count = mask.sum().clamp_min(1.0)  # avoid div by zero
 
                     # Roll the dynamics model to predict the next latents: (B, T-h, D)
                     predicted_latents = self.latent_dynamics_model[layer_idx](
-                        [input_latents], next_token,
+                        current_input_streams, next_token,
                     )
 
                     # Compute the smooth L1 loss on the predicted latents (note: detach is important)
@@ -189,7 +194,11 @@ class NextLatGPT(Transformer):
                         kl_loss = kl_loss + kl_sum / mask_count
 
                     # Use the predicted latents as the input for the next iteration
-                    input_latents = predicted_latents
+                    # input_latents = predicted_latents
+                    current_input_streams = (
+                        [x[:, :-1, :] for x in current_input_streams[1:]]
+                        + [predicted_latents[:, :-1, :]]
+                    )  # ignore last token from predicted latents and the inputs as we don't have the target
 
             # Compute the total loss -- regression should be normalized over layers and horizon
             regression_loss = regression_loss / (max_horizon * len(all_latents))
