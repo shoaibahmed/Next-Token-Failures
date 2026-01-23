@@ -120,8 +120,8 @@ class NextLatGPT(Transformer):
             kl_loss = 0.
             probs = torch.softmax(logits.detach(), dim=-1)
 
-            # Note: we don't call detach from the original embeddings as it wasn't specified in the algo
-            tokens = tok_emb  # embeddings without positional encodings (not specified in the paper)
+            # Note: we call detach from the original embeddings as it wasn't specified in the algo
+            tokens = tok_emb.detach()  # embeddings without positional encodings (not specified in the paper)
 
             # Ignore the prefix tokens like the CE loss
             # Target should be -1 for the tokens to be ignored at the output
