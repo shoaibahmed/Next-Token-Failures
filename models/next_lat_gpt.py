@@ -131,7 +131,9 @@ class NextLatGPT(Transformer):
             # Target should be -1 for the tokens to be ignored at the output
             # Only use the input and targets for the kept tokens
             keep_mask = (targets != self.ignore_idx).float()  # (B, T)
+            assert seq_len > self.num_prev_latents, f"{seq_len} <= {self.num_prev_latents}"
             max_horizon = min(self.pred_horizon, seq_len - self.num_prev_latents)
+            assert max_horizon > 0, max_horizon
 
             # Pick the latent states for the selected layers
             assert len(all_latents) == len(self.layers), \
@@ -181,8 +183,8 @@ class NextLatGPT(Transformer):
                         # A computationally bad but visually elegant way to do it would be:
                         # copy.deepcopy(self.lm_head)(predicted_latents)
                         predicted_logits = torch.nn.functional.linear(
-                            predicted_latents, 
-                            self.lm_head.weight.detach(), 
+                            self.final_layernorm(predicted_latents),  # apply final layer norm
+                            self.lm_head.weight.detach(),
                             bias=self.lm_head.bias.detach() if self.lm_head.bias is not None else None
                         )
                         predicted_log_probs = torch.nn.functional.log_softmax(predicted_logits, dim=-1)
