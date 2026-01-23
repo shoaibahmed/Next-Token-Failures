@@ -20,7 +20,10 @@ def get_model(args):
                            boundary_condition=args.multihead_boundary_condition)
         model = MultiheadGPT(config)
     elif args.model == 'next_lat_gpt':
-        next_latent_pred_layers = [int(x) for x in args.next_latent_pred_layers.split(",")]
+        if args.next_latent_pred_layers == "all":
+            next_latent_pred_layers = list(range(args.n_layer))
+        else:
+            next_latent_pred_layers = [int(x) for x in args.next_latent_pred_layers.split(",")]
         config = GPTConfig(n_layers=args.n_layer, n_heads=args.n_head, n_embd=args.n_embd, block_size=args.block_size,
                            bias=True, vocab_size=args.vocab_size, dropout=0, use_flash=args.use_flash,
                            teacherless_token=args.teacherless_token, pred_horizon=args.pred_horizon,
