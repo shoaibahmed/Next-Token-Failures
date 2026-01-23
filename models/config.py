@@ -57,7 +57,9 @@ class GPTConfig:
     # Next-Lat GPT args
     next_lat_lambda: float = 1.0
     kl_lambda: float = 1.0
-    all_latent_pred: bool = False
+    num_prev_latents: int = 1
+    use_last_lat_res_conn: bool = False
+    next_latent_pred_layers: List[int] = None
 
 
 @dataclass

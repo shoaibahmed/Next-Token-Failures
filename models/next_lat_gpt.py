@@ -38,9 +38,10 @@ class LatentDynamicsModel(torch.nn.Module):
 
     def forward(self, prev_latents: List[torch.Tensor],
                 token_embed: torch.Tensor) -> torch.Tensor:
+        assert isinstance(prev_latents, (list, tuple)), type(prev_latents)
         assert len(prev_latents) == self.n_prev_latents, \
             f"{len(prev_latents)} != {self.n_prev_latents}"
-        input_state = torch.cat([token_embed] + prev_latents, dim=-1)  # concatenate in hidden dim
+        input_state = torch.cat(prev_latents + [token_embed], dim=-1)  # concatenate in hidden dim
         next_latent = self.latent_dynamics_model(input_state)  # make a prediction via the latent dynamics model
         if self.residual_connection:
             # Use a residual connection from the last latent
@@ -60,10 +61,14 @@ class NextLatGPT(Transformer):
         self.pred_horizon = config.pred_horizon
 
         # Setup the latent dynamics model
-        self.all_latent_pred = config.all_latent_pred
-        num_dynamics_models = config.n_layers if self.all_latent_pred else 1
+        self.num_prev_latents = config.num_prev_latents
+        self.next_latent_pred_layers = config.next_latent_pred_layers
+        num_dynamics_models = len(self.next_latent_pred_layers)
         self.latent_dynamics_model = torch.nn.ModuleList([
-            LatentDynamicsModel(config.n_embd) for _ in range(num_dynamics_models)
+            LatentDynamicsModel(
+                config.n_embd, n_prev_latents=self.num_prev_latents,
+                residual_connection=config.use_last_lat_res_conn,
+            ) for _ in range(num_dynamics_models)
         ])
 
         # Define the loss functions (with no reduction to support masking)
@@ -90,11 +95,10 @@ class NextLatGPT(Transformer):
 
         # Base transformer layers
         x = tokens  # start with the token + positional embeddings
-        all_latents = [] if self.all_latent_pred else None
+        all_latents = []
         for block in self.layers:
             x = block(x, self.cache)
-            if self.all_latent_pred:
-                all_latents.append(x)
+            all_latents.append(x)
         latents = self.final_layernorm(x)
 
         # Compute the next token prediction loss
@@ -129,19 +133,19 @@ class NextLatGPT(Transformer):
             keep_mask = (targets != self.ignore_idx).float()  # (B, T)
             max_horizon = min(self.pred_horizon, seq_len - 1)
 
-            if self.all_latent_pred:
-                # Should return a list of states -- discard the embedding outputs
-                assert all_latents is not None
-                assert len(all_latents) == len(self.layers), \
-                    f"{len(all_latents)} != {self.layers}"
-            else:
-                # List with only the last hidden states
-                all_latents = [latents]
+            # Pick the latent states for the selected layers
+            assert len(all_latents) == len(self.layers), \
+                f"{len(all_latents)} != {self.layers}"
+            all_latents = [all_latents[i] for i in self.next_latent_pred_layers]
+            assert len(all_latents) == len(self.next_latent_pred_layers), \
+                f"{len(all_latents)} != {len(self.next_latent_pred_layers)}"
 
             for layer_idx, latents in enumerate(all_latents):
                 input_latents = latents  # start with the original latents
                 for horizon in range(1, max_horizon + 1):
                     # Get the input and target latents
+                    if self.num_prev_latents > 1:
+                        raise NotImplementedError
                     target_latents = latents[:, horizon:, :]  # (B, T-h, D)
                     next_token = tokens[:, horizon:]  # (B, T-h, D)
                     target_probs = probs[:, horizon:, :]  # (B, T-h, V)
@@ -153,7 +157,7 @@ class NextLatGPT(Transformer):
 
                     # Roll the dynamics model to predict the next latents: (B, T-h, D)
                     predicted_latents = self.latent_dynamics_model[layer_idx](
-                        next_token, input_latents,
+                        [input_latents], next_token,
                     )
 
                     # Compute the smooth L1 loss on the predicted latents (note: detach is important)
@@ -166,7 +170,8 @@ class NextLatGPT(Transformer):
                     else:
                         regression_loss = regression_loss + reg_per_loc.mean()  # (B, T-h, D) -> scalar
 
-                    if not self.all_latent_pred:
+                    # Compute the KL loss on the predicted latents when only using the last layer latents
+                    if len(self.next_latent_pred_layers) == 1 and self.next_latent_pred_layers[0] == -1:
                         # Compute the KL loss using the output head (with the output head frozen)
                         # A computationally bad but visually elegant way to do it would be:
                         # copy.deepcopy(self.lm_head)(predicted_latents)
