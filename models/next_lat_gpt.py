@@ -83,6 +83,13 @@ class NextLatGPT(Transformer):
         self.kl_lambda = config.kl_lambda
         self.mask_latent_reg = False  # the paper mentioned to not use masking for latents
 
+        self.normalize_latents = True
+        self.latent_norm_layer = None
+        if self.normalize_latents:
+            # Normalization layer without affine parameters
+            # Note: since this is w/o affine parameters, last layer normalization should work as intended
+            self.latent_norm_layer = nn.LayerNorm(config.n_embd, elementwise_affine=False)
+
     def forward(self, idx, targets=None):
         device = idx.device
         bsz, seq_len = idx.size()
@@ -144,6 +151,9 @@ class NextLatGPT(Transformer):
                 f"{len(all_latents)} != {len(self.next_latent_pred_layers)}"
 
             for layer_idx, latents in enumerate(all_latents):
+                if self.normalize_latents:
+                    # Normalize the latents (which would also normalize the targets)
+                    latents = self.latent_norm_layer(latents)
                 input_latents = latents  # start with the original latents
 
                 current_input_streams = []
