@@ -1,3 +1,4 @@
+import copy
 from typing import List
 
 import torch
@@ -182,8 +183,9 @@ class NextLatGPT(Transformer):
                         # Compute the KL loss using the output head (with the output head frozen)
                         # A computationally bad but visually elegant way to do it would be:
                         # copy.deepcopy(self.lm_head)(predicted_latents)
+                        normalized_predicted_latents = copy.deepcopy(self.final_layernorm)(predicted_latents)
                         predicted_logits = torch.nn.functional.linear(
-                            self.final_layernorm(predicted_latents),  # apply final layer norm
+                            normalized_predicted_latents,  # use normalized latents as the probs were computed with LN
                             self.lm_head.weight.detach(),
                             bias=self.lm_head.bias.detach() if self.lm_head.bias is not None else None
                         )
