@@ -1,4 +1,4 @@
-import copy
+from typing import List
 
 import torch
 import torch.nn as nn
@@ -9,12 +9,16 @@ from utils.training_utils import accuracy
 
 
 class LatentDynamicsModel(torch.nn.Module):
-    def __init__(self, n_embd: int):
+    def __init__(self, n_embd: int, n_prev_latents: int = 1,
+                 residual_connection: bool = True):
         super().__init__()
+        assert n_prev_latents >= 1, n_prev_latents
+        self.n_prev_latents = n_prev_latents
+        self.residual_connection = residual_connection
 
         # Follow the setup from https://arxiv.org/abs/2511.05963 (appendix C)
         # Note: we are using the representation of the model after the final layer norm
-        input_dim = 2 * n_embd  # previous hidden dim and input embedding
+        input_dim = (n_prev_latents + 1) * n_embd  # previous latents and input embedding
         self.latent_dynamics_model = torch.nn.Sequential(
             torch.nn.LayerNorm(input_dim),
             torch.nn.Linear(input_dim, n_embd),
@@ -32,10 +36,16 @@ class LatentDynamicsModel(torch.nn.Module):
         self.latent_dynamics_model[-1].weight.data.zero_()
         self.latent_dynamics_model[-1].bias.data.zero_()
 
-    def forward(self, token_embed: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
-        input_state = torch.cat([token_embed, h], dim=-1)  # concatenate in hidden dim
-        pred_h = h + self.latent_dynamics_model(input_state)
-        return pred_h
+    def forward(self, prev_latents: List[torch.Tensor],
+                token_embed: torch.Tensor) -> torch.Tensor:
+        assert len(prev_latents) == self.n_prev_latents, \
+            f"{len(prev_latents)} != {self.n_prev_latents}"
+        input_state = torch.cat([token_embed] + prev_latents, dim=-1)  # concatenate in hidden dim
+        next_latent = self.latent_dynamics_model(input_state)  # make a prediction via the latent dynamics model
+        if self.residual_connection:
+            # Use a residual connection from the last latent
+            next_latent = prev_latents[-1] + next_latent
+        return next_latent
 
 
 class NextLatGPT(Transformer):
