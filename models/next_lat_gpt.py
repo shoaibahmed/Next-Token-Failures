@@ -1,4 +1,5 @@
 import copy
+from typing import List
 
 import torch
 import torch.nn as nn
@@ -9,12 +10,16 @@ from utils.training_utils import accuracy
 
 
 class LatentDynamicsModel(torch.nn.Module):
-    def __init__(self, n_embd: int):
+    def __init__(self, n_embd: int, n_prev_latents: int = 1,
+                 residual_connection: bool = True):
         super().__init__()
+        assert n_prev_latents >= 1, n_prev_latents
+        self.n_prev_latents = n_prev_latents
+        self.residual_connection = residual_connection
 
         # Follow the setup from https://arxiv.org/abs/2511.05963 (appendix C)
         # Note: we are using the representation of the model after the final layer norm
-        input_dim = 2 * n_embd  # previous hidden dim and input embedding
+        input_dim = (n_prev_latents + 1) * n_embd  # previous latents and input embedding
         self.latent_dynamics_model = torch.nn.Sequential(
             torch.nn.LayerNorm(input_dim),
             torch.nn.Linear(input_dim, n_embd),
@@ -32,10 +37,17 @@ class LatentDynamicsModel(torch.nn.Module):
         self.latent_dynamics_model[-1].weight.data.zero_()
         self.latent_dynamics_model[-1].bias.data.zero_()
 
-    def forward(self, token_embed: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
-        input_state = torch.cat([token_embed, h], dim=-1)  # concatenate in hidden dim
-        pred_h = h + self.latent_dynamics_model(input_state)
-        return pred_h
+    def forward(self, prev_latents: List[torch.Tensor],
+                token_embed: torch.Tensor) -> torch.Tensor:
+        assert isinstance(prev_latents, (list, tuple)), type(prev_latents)
+        assert len(prev_latents) == self.n_prev_latents, \
+            f"{len(prev_latents)} != {self.n_prev_latents}"
+        input_state = torch.cat(prev_latents + [token_embed], dim=-1)  # concatenate in hidden dim
+        next_latent = self.latent_dynamics_model(input_state)  # make a prediction via the latent dynamics model
+        if self.residual_connection:
+            # Use a residual connection from the last latent
+            next_latent = prev_latents[-1] + next_latent
+        return next_latent
 
 
 class NextLatGPT(Transformer):
@@ -50,10 +62,14 @@ class NextLatGPT(Transformer):
         self.pred_horizon = config.pred_horizon
 
         # Setup the latent dynamics model
-        self.all_latent_pred = config.all_latent_pred
-        num_dynamics_models = config.n_layers if self.all_latent_pred else 1
+        self.num_prev_latents = config.num_prev_latents
+        self.next_latent_pred_layers = config.next_latent_pred_layers
+        num_dynamics_models = len(self.next_latent_pred_layers)
         self.latent_dynamics_model = torch.nn.ModuleList([
-            LatentDynamicsModel(config.n_embd) for _ in range(num_dynamics_models)
+            LatentDynamicsModel(
+                config.n_embd, n_prev_latents=self.num_prev_latents,
+                residual_connection=config.use_last_lat_res_conn,
+            ) for _ in range(num_dynamics_models)
         ])
 
         # Define the loss functions (with no reduction to support masking)
@@ -66,6 +82,13 @@ class NextLatGPT(Transformer):
         self.next_lat_lambda = config.next_lat_lambda
         self.kl_lambda = config.kl_lambda
         self.mask_latent_reg = False  # the paper mentioned to not use masking for latents
+
+        self.normalize_latents = True
+        self.latent_norm_layer = None
+        if self.normalize_latents:
+            # Normalization layer without affine parameters
+            # Note: since this is w/o affine parameters, last layer normalization should work as intended
+            self.latent_norm_layer = nn.LayerNorm(config.n_embd, elementwise_affine=False)
 
     def forward(self, idx, targets=None):
         device = idx.device
@@ -80,11 +103,10 @@ class NextLatGPT(Transformer):
 
         # Base transformer layers
         x = tokens  # start with the token + positional embeddings
-        all_latents = [] if self.all_latent_pred else None
+        all_latents = []
         for block in self.layers:
             x = block(x, self.cache)
-            if self.all_latent_pred:
-                all_latents.append(x)
+            all_latents.append(x)
         latents = self.final_layernorm(x)
 
         # Compute the next token prediction loss
@@ -110,40 +132,50 @@ class NextLatGPT(Transformer):
             kl_loss = 0.
             probs = torch.softmax(logits.detach(), dim=-1)
 
-            # Note: we don't call detach from the original embeddings as it wasn't specified in the algo
-            tokens = tok_emb  # embeddings without positional encodings (not specified in the paper)
+            # Note: we call detach from the original embeddings as it wasn't specified in the algo
+            tokens = tok_emb.detach()  # embeddings without positional encodings (not specified in the paper)
 
             # Ignore the prefix tokens like the CE loss
             # Target should be -1 for the tokens to be ignored at the output
             # Only use the input and targets for the kept tokens
             keep_mask = (targets != self.ignore_idx).float()  # (B, T)
-            max_horizon = min(self.pred_horizon, seq_len - 1)
+            assert seq_len > self.num_prev_latents, f"{seq_len} <= {self.num_prev_latents}"
+            max_horizon = min(self.pred_horizon, seq_len - self.num_prev_latents)
+            assert max_horizon > 0, max_horizon
 
-            if self.all_latent_pred:
-                # Should return a list of states -- discard the embedding outputs
-                assert all_latents is not None
-                assert len(all_latents) == len(self.layers), \
-                    f"{len(all_latents)} != {self.layers}"
-            else:
-                # List with only the last hidden states
-                all_latents = [latents]
+            # Pick the latent states for the selected layers
+            assert len(all_latents) == len(self.layers), \
+                f"{len(all_latents)} != {self.layers}"
+            all_latents = [all_latents[i] for i in self.next_latent_pred_layers]
+            assert len(all_latents) == len(self.next_latent_pred_layers), \
+                f"{len(all_latents)} != {len(self.next_latent_pred_layers)}"
 
             for layer_idx, latents in enumerate(all_latents):
+                if self.normalize_latents:
+                    # Normalize the latents (which would also normalize the targets)
+                    latents = self.latent_norm_layer(latents)
                 input_latents = latents  # start with the original latents
+
+                current_input_streams = []
+                for i in range(self.num_prev_latents):
+                    end = seq_len - self.num_prev_latents + i
+                    current_input_streams.append(input_latents[:, i:end, :])
+
                 for horizon in range(1, max_horizon + 1):
                     # Get the input and target latents
-                    target_latents = latents[:, horizon:, :]  # (B, T-h, D)
-                    next_token = tokens[:, horizon:]  # (B, T-h, D)
-                    target_probs = probs[:, horizon:, :]  # (B, T-h, V)
-                    input_latents = input_latents[:, :-1, :]  # (B, T-h, D)
+                    start_idx = horizon + self.num_prev_latents - 1  # start should be at horizon for num_prev_latents=1
+                    target_latents = latents[:, start_idx:, :]  # (B, T-h, D)
+                    next_token = tokens[:, start_idx:]  # (B, T-h, D)
+                    target_probs = probs[:, start_idx:, :]  # (B, T-h, V)
+                    # input_latents = input_latents[:, :-1, :]  # (B, T-h, D)
 
                     # Mask for positions where we have valid targets
-                    mask = keep_mask[:, horizon:]  # (B, T-h)
+                    mask = keep_mask[:, start_idx:]  # (B, T-h)
                     mask_count = mask.sum().clamp_min(1.0)  # avoid div by zero
 
                     # Roll the dynamics model to predict the next latents: (B, T-h, D)
                     predicted_latents = self.latent_dynamics_model[layer_idx](
-                        next_token, input_latents,
+                        current_input_streams, next_token,
                     )
 
                     # Compute the smooth L1 loss on the predicted latents (note: detach is important)
@@ -156,13 +188,15 @@ class NextLatGPT(Transformer):
                     else:
                         regression_loss = regression_loss + reg_per_loc.mean()  # (B, T-h, D) -> scalar
 
-                    if not self.all_latent_pred:
+                    # Compute the KL loss on the predicted latents when only using the last layer latents
+                    if len(self.next_latent_pred_layers) == 1 and self.next_latent_pred_layers[0] == -1:
                         # Compute the KL loss using the output head (with the output head frozen)
                         # A computationally bad but visually elegant way to do it would be:
                         # copy.deepcopy(self.lm_head)(predicted_latents)
+                        normalized_predicted_latents = copy.deepcopy(self.final_layernorm)(predicted_latents)
                         predicted_logits = torch.nn.functional.linear(
-                            predicted_latents, 
-                            self.lm_head.weight.detach(), 
+                            normalized_predicted_latents,  # use normalized latents as the probs were computed with LN
+                            self.lm_head.weight.detach(),
                             bias=self.lm_head.bias.detach() if self.lm_head.bias is not None else None
                         )
                         predicted_log_probs = torch.nn.functional.log_softmax(predicted_logits, dim=-1)
@@ -174,7 +208,11 @@ class NextLatGPT(Transformer):
                         kl_loss = kl_loss + kl_sum / mask_count
 
                     # Use the predicted latents as the input for the next iteration
-                    input_latents = predicted_latents
+                    # input_latents = predicted_latents
+                    current_input_streams = (
+                        [x[:, :-1, :] for x in current_input_streams[1:]]
+                        + [predicted_latents[:, :-1, :]]
+                    )  # ignore last token from predicted latents and the inputs as we don't have the target
 
             # Compute the total loss -- regression should be normalized over layers and horizon
             regression_loss = regression_loss / (max_horizon * len(all_latents))

@@ -71,8 +71,7 @@ def get_run_name(args):
             if args.multihead_boundary_condition is not None:
                 name += f"_boundary_{args.multihead_boundary_condition}"
         elif args.model == "next_lat_gpt":
-            name += "_v5_wo_detch_tok_embd"
-            name += "_all_lat" if args.all_latent_pred else ""
+            name += "_w_lat_norm"
             if args.pred_horizon != args.path_len - 2:
                 name += f"_horizon_{args.pred_horizon}"
             if args.next_lat_lambda != 1.0 or args.kl_lambda != 1.0:
@@ -81,6 +80,9 @@ def get_run_name(args):
                     name += f"_nl_{args.next_lat_lambda}"
                 if args.kl_lambda != 1.0:
                     name += f"_kl_{args.kl_lambda}"
+            name += f"_prev_lat_{args.num_prev_latents}" if args.num_prev_latents != 1 else ""
+            name += f"_layers_{args.next_latent_pred_layers}" if args.next_latent_pred_layers != "-1" else ""
+            name += "_res" if args.use_last_lat_res_conn else ""
     elif args.dataset == 'chess':
         assert not args.model == "multihead_gpt", args.model
         assert args.waypoint_len is None

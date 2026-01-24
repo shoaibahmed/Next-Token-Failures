@@ -112,9 +112,14 @@ parser.add_argument(
         "--clip-grad-norm", type=float, default=None, help="Grad norm clipping threshold",
     )
 parser.add_argument(
-        "--all_latent_pred", action=argparse.BooleanOptionalAction, default=False, help="Make prediction on all layers",
+        "--num_prev_latents", type=int, default=1, help="Number of previous latents to use for next-latent prediction (default: 1)",
     )
-
+parser.add_argument(
+        "--next_latent_pred_layers", type=str, default="-1", help="Layers to apply the next-latent prediction loss (default: last layer)",
+    )
+parser.add_argument(
+        "--use_last_lat_res_conn", action=argparse.BooleanOptionalAction, default=False, help="Whether to use a residual connection from the last latent"
+)
 args = parser.parse_args()
 # System stuff
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
